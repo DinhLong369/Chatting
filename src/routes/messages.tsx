@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
-import { Phone, Search, Send, Smile, Video, Paperclip } from "lucide-react";
+import { ArrowLeft, Phone, Search, Send, Smile, Video, Paperclip } from "lucide-react";
 
 export const Route = createFileRoute("/messages")({
   head: () => ({
@@ -48,6 +48,7 @@ function MessagesPage() {
   const [activeId, setActiveId] = useState("1");
   const [thread, setThread] = useState<Msg[]>(initialThread);
   const [draft, setDraft] = useState("");
+  const [mobileView, setMobileView] = useState<"list" | "thread">("list");
   const active = conversations.find((c) => c.id === activeId)!;
 
   function send(e: React.FormEvent) {
@@ -68,13 +69,15 @@ function MessagesPage() {
   return (
     <div className="min-h-screen" style={{ background: "var(--gradient-soft)" }}>
       <AppHeader />
-      <main className="mx-auto max-w-6xl px-6 py-6">
+      <main className="mx-auto max-w-6xl px-0 py-0 sm:px-4 sm:py-4 md:px-6 md:py-6">
         <div
-          className="grid h-[calc(100vh-7rem)] grid-cols-1 overflow-hidden rounded-3xl border border-border bg-card md:grid-cols-[320px_1fr]"
+          className="grid h-[calc(100dvh-4rem)] grid-cols-1 overflow-hidden border-border bg-card sm:h-[calc(100dvh-6rem)] sm:rounded-3xl sm:border md:h-[calc(100dvh-7rem)] md:grid-cols-[280px_1fr] lg:grid-cols-[320px_1fr]"
           style={{ boxShadow: "var(--shadow-soft)" }}
         >
           {/* Sidebar */}
-          <aside className="flex flex-col border-r border-border">
+          <aside
+            className={`${mobileView === "list" ? "flex" : "hidden"} min-h-0 flex-col border-border md:flex md:border-r`}
+          >
             <div className="border-b border-border p-4">
               <h2 className="text-lg font-semibold">Tin nhắn</h2>
               <div className="relative mt-3">
@@ -85,13 +88,16 @@ function MessagesPage() {
                 />
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-2">
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {conversations.map((c) => {
                 const isActive = c.id === activeId;
                 return (
                   <button
                     key={c.id}
-                    onClick={() => setActiveId(c.id)}
+                    onClick={() => {
+                      setActiveId(c.id);
+                      setMobileView("thread");
+                    }}
                     className={`flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors ${
                       isActive ? "bg-accent" : "hover:bg-secondary"
                     }`}
@@ -131,22 +137,33 @@ function MessagesPage() {
           </aside>
 
           {/* Thread */}
-          <section className="flex min-h-0 flex-col">
-            <header className="flex items-center justify-between border-b border-border px-6 py-4">
-              <div className="flex items-center gap-3">
+          <section
+            className={`${mobileView === "thread" ? "flex" : "hidden"} min-h-0 flex-col md:flex`}
+          >
+            <header className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3 sm:px-6 sm:py-4">
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setMobileView("list")}
+                  className="-ml-1 rounded-full p-2 text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+                  aria-label="Quay lại"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
                 <div
-                  className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
                   style={{ background: "var(--gradient-warm)" }}
                 >
                   {active.initial}
                 </div>
-                <div>
-                  <div className="text-sm font-semibold">{active.name}</div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{active.name}</div>
                   <div className="text-xs text-primary">
                     {active.online ? "đang hoạt động" : "ngoại tuyến"}
                   </div>
                 </div>
               </div>
+              <div />
               <div className="flex items-center gap-1 text-muted-foreground">
                 <button className="rounded-full p-2 hover:bg-accent hover:text-foreground">
                   <Phone className="h-4 w-4" />
@@ -157,7 +174,7 @@ function MessagesPage() {
               </div>
             </header>
 
-            <div className="flex-1 space-y-3 overflow-y-auto px-6 py-6">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
               <div className="text-center text-[11px] uppercase tracking-wider text-muted-foreground">
                 Hôm nay
               </div>
@@ -167,7 +184,7 @@ function MessagesPage() {
                   className={`flex ${m.from === "me" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${
+                    className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm sm:max-w-[70%] ${
                       m.from === "me"
                         ? "rounded-tr-md text-primary-foreground"
                         : "rounded-tl-md bg-muted text-foreground"
@@ -189,23 +206,23 @@ function MessagesPage() {
               ))}
             </div>
 
-            <form onSubmit={send} className="border-t border-border p-4">
-              <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-2">
-                <button type="button" className="rounded-full p-1.5 text-muted-foreground hover:bg-accent">
+            <form onSubmit={send} className="border-t border-border p-3 sm:p-4">
+              <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-background px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2">
+                <button type="button" className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-accent">
                   <Paperclip className="h-4 w-4" />
                 </button>
                 <input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder="Nhập tin nhắn…"
-                  className="flex-1 bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
+                  className="min-w-0 flex-1 bg-transparent px-1 text-sm placeholder:text-muted-foreground focus:outline-none"
                 />
-                <button type="button" className="rounded-full p-1.5 text-muted-foreground hover:bg-accent">
+                <button type="button" className="hidden shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-accent sm:inline-flex">
                   <Smile className="h-4 w-4" />
                 </button>
                 <button
                   type="submit"
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-primary-foreground"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-primary-foreground"
                   style={{ background: "var(--gradient-warm)" }}
                 >
                   <Send className="h-4 w-4" />
