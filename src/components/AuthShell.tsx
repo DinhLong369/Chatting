@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { Sparkles } from "lucide-react";
-import type { ReactNode } from "react";
+import { AlertCircle, CheckCircle2, Sparkles } from "lucide-react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 
 export function AuthShell({
   title,
@@ -69,28 +69,99 @@ export function FieldLabel({ children }: { children: ReactNode }) {
   return <label className="text-sm font-medium text-foreground">{children}</label>;
 }
 
-export function TextField({
-  label,
-  type = "text",
-  placeholder,
-  autoComplete,
-}: {
+type ValidatedFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className"> & {
   label: string;
-  type?: string;
-  placeholder?: string;
-  autoComplete?: string;
-}) {
+  error?: string | null;
+  success?: boolean;
+  hint?: string;
+  rightSlot?: ReactNode;
+};
+
+export function ValidatedField({
+  label,
+  error,
+  success,
+  hint,
+  rightSlot,
+  id,
+  ...inputProps
+}: ValidatedFieldProps) {
+  const fid = id ?? `f-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  const state = error ? "error" : success ? "success" : "idle";
+  const ringClass =
+    state === "error"
+      ? "border-destructive/60 focus:border-destructive focus:ring-destructive/20"
+      : state === "success"
+      ? "border-emerald-500/60 focus:border-emerald-500 focus:ring-emerald-500/20"
+      : "border-border focus:border-primary focus:ring-primary/15";
+
   return (
     <div className="space-y-1.5">
       <FieldLabel>{label}</FieldLabel>
-      <input
-        type={type}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        className="h-11 w-full rounded-xl border border-border bg-card px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/15"
-      />
+      <div className="relative">
+        <input
+          id={fid}
+          aria-invalid={!!error}
+          aria-describedby={error ? `${fid}-err` : hint ? `${fid}-hint` : undefined}
+          {...inputProps}
+          className={`h-11 w-full rounded-xl border bg-card px-4 ${
+            rightSlot || state !== "idle" ? "pr-10" : ""
+          } text-sm text-foreground placeholder:text-muted-foreground/70 outline-none transition-all focus:ring-4 ${ringClass}`}
+        />
+        <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+          {state === "error" ? (
+            <AlertCircle className="h-4 w-4 text-destructive" />
+          ) : state === "success" ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          ) : (
+            rightSlot
+          )}
+        </div>
+      </div>
+      <FieldMessage id={fid} error={error} hint={hint} />
     </div>
   );
+}
+
+export function FieldMessage({
+  id,
+  error,
+  hint,
+}: {
+  id?: string;
+  error?: string | null;
+  hint?: string;
+}) {
+  const showError = !!error;
+  return (
+    <div
+      className={`grid overflow-hidden transition-all duration-200 ease-out ${
+        showError ? "grid-rows-[1fr] opacity-100" : hint ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+      }`}
+    >
+      <div className="min-h-0">
+        {showError ? (
+          <p
+            id={`${id}-err`}
+            role="alert"
+            className="flex items-center gap-1.5 text-xs font-medium text-destructive"
+          >
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            <span>{error}</span>
+          </p>
+        ) : hint ? (
+          <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+            {hint}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// Backward-compat: keep TextField export but route through ValidatedField
+export function TextField(props: ValidatedFieldProps) {
+  return <ValidatedField {...props} />;
 }
 
 export function PrimaryButton({ children }: { children: ReactNode }) {
