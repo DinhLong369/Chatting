@@ -1,11 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Mail, ShieldCheck, UserPlus } from "lucide-react";
-import {
-  AuthShell,
-  PrimaryButton,
-  TextField,
-} from "@/components/AuthShell";
+import { AuthShell, PrimaryButton } from "@/components/AuthShell";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
