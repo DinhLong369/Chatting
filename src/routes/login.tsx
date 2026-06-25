@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   AuthShell,
   PrimaryButton,
   SocialButton,
-  TextField,
+  ValidatedField,
 } from "@/components/AuthShell";
 
 export const Route = createFileRoute("/login")({
@@ -19,6 +20,23 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [touched, setTouched] = useState<{ email?: boolean; password?: boolean }>({});
+
+  const emailError =
+    touched.email && !email
+      ? "Vui lòng nhập email."
+      : touched.email && !/^\S+@\S+\.\S+$/.test(email)
+      ? "Email không hợp lệ. Ví dụ: ban@email.com"
+      : null;
+  const passwordError =
+    touched.password && !password
+      ? "Vui lòng nhập mật khẩu."
+      : touched.password && password.length < 8
+      ? "Mật khẩu cần tối thiểu 8 ký tự."
+      : null;
+
   return (
     <AuthShell
       title="Chào mừng trở lại"
@@ -32,10 +50,36 @@ function LoginPage() {
         </>
       }
     >
-      <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-        <TextField label="Email" type="email" placeholder="ban@email.com" autoComplete="email" />
+      <form
+        noValidate
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setTouched({ email: true, password: true });
+        }}
+      >
+        <ValidatedField
+          label="Email"
+          type="email"
+          placeholder="ban@email.com"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onBlur={() => setTouched((t) => ({ ...t, email: true }))}
+          error={emailError}
+          success={!emailError && /^\S+@\S+\.\S+$/.test(email)}
+        />
         <div>
-          <TextField label="Mật khẩu" type="password" placeholder="••••••••" autoComplete="current-password" />
+          <ValidatedField
+            label="Mật khẩu"
+            type="password"
+            placeholder="••••••••"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onBlur={() => setTouched((t) => ({ ...t, password: true }))}
+            error={passwordError}
+          />
           <div className="mt-2 text-right">
             <a href="#" className="text-xs text-muted-foreground hover:text-primary">
               Quên mật khẩu?
