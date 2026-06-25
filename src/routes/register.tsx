@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, Mail, ShieldCheck, UserPlus } from "lucide-react";
-import { AuthShell, PrimaryButton } from "@/components/AuthShell";
+import { AlertCircle, ArrowLeft, CheckCircle2, Mail, ShieldCheck, UserPlus } from "lucide-react";
+import { AuthShell, FieldMessage, PrimaryButton, ValidatedField } from "@/components/AuthShell";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
@@ -128,29 +128,36 @@ function EmailStep({
   setEmail: (v: string) => void;
   onNext: () => void;
 }) {
+  const [touched, setTouched] = useState(false);
+  const valid = /^\S+@\S+\.\S+$/.test(email);
+  const error =
+    touched && !email
+      ? "Vui lòng nhập email của bạn."
+      : touched && !valid
+      ? "Email không hợp lệ. Ví dụ: ban@email.com"
+      : null;
   return (
     <form
+      noValidate
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault();
-        if (email.includes("@")) onNext();
+        setTouched(true);
+        if (valid) onNext();
       }}
     >
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">Email</label>
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="ban@email.com"
-          autoComplete="email"
-          className="h-11 w-full rounded-xl border border-border bg-card px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/15"
-        />
-        <p className="text-xs text-muted-foreground">
-          Bạn sẽ nhận được mã 6 số trong vài giây.
-        </p>
-      </div>
+      <ValidatedField
+        label="Email"
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        onBlur={() => setTouched(true)}
+        placeholder="ban@email.com"
+        autoComplete="email"
+        error={error}
+        success={!error && valid}
+        hint={!error ? "Bạn sẽ nhận được mã 6 số trong vài giây." : undefined}
+      />
       <PrimaryButton>Gửi mã xác thực</PrimaryButton>
     </form>
   );
@@ -171,6 +178,8 @@ function OtpStep({
 }) {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const complete = useMemo(() => otp.every((d) => d !== ""), [otp]);
+  const [touched, setTouched] = useState(false);
+  const error = touched && !complete ? "Vui lòng nhập đủ 6 chữ số." : null;
 
   const update = (i: number, val: string) => {
     const ch = val.replace(/\D/g, "").slice(-1);
@@ -196,28 +205,42 @@ function OtpStep({
 
   return (
     <form
+      noValidate
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
+        setTouched(true);
         if (complete) onNext();
       }}
     >
-      <div className="flex justify-between gap-2">
-        {otp.map((d, i) => (
-          <input
-            key={i}
-            ref={(el) => {
-              inputs.current[i] = el;
-            }}
-            value={d}
-            onChange={(e) => update(i, e.target.value)}
-            onKeyDown={(e) => onKey(i, e)}
-            onPaste={onPaste}
-            inputMode="numeric"
-            maxLength={1}
-            className="h-14 w-12 rounded-xl border border-border bg-card text-center text-lg font-semibold text-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/15"
-          />
-        ))}
+      <div>
+        <div className="flex justify-between gap-2">
+          {otp.map((d, i) => (
+            <input
+              key={i}
+              ref={(el) => {
+                inputs.current[i] = el;
+              }}
+              value={d}
+              onChange={(e) => update(i, e.target.value)}
+              onKeyDown={(e) => onKey(i, e)}
+              onPaste={onPaste}
+              inputMode="numeric"
+              maxLength={1}
+              aria-invalid={!!error}
+              className={`h-14 w-12 rounded-xl border bg-card text-center text-lg font-semibold text-foreground outline-none transition-all focus:ring-4 ${
+                error
+                  ? "border-destructive/60 focus:border-destructive focus:ring-destructive/20"
+                  : d
+                  ? "border-primary/60 focus:border-primary focus:ring-primary/20"
+                  : "border-border focus:border-primary focus:ring-primary/15"
+              }`}
+            />
+          ))}
+        </div>
+        <div className="mt-2">
+          <FieldMessage error={error} />
+        </div>
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -256,46 +279,122 @@ function ProfileStep({
   onBack: () => void;
   onSubmit: () => void;
 }) {
+  const [touched, setTouched] = useState<{ u?: boolean; p?: boolean; a?: boolean }>({});
+  const [agreed, setAgreed] = useState(false);
+
+  const usernameError =
+    touched.u && !username
+      ? "Vui lòng nhập tên người dùng."
+      : touched.u && !/^[a-z0-9_.]{3,20}$/i.test(username)
+      ? "Dùng 3–20 ký tự: chữ, số, dấu chấm hoặc gạch dưới."
+      : null;
+  const passwordError =
+    touched.p && !password
+      ? "Vui lòng nhập mật khẩu."
+      : touched.p && password.length < 8
+      ? "Mật khẩu cần tối thiểu 8 ký tự."
+      : null;
+  const agreeError = touched.a && !agreed ? "Bạn cần đồng ý với điều khoản." : null;
+
+  // password strength
+  const strength = useMemo(() => {
+    let s = 0;
+    if (password.length >= 8) s++;
+    if (/[A-Z]/.test(password)) s++;
+    if (/[0-9]/.test(password)) s++;
+    if (/[^A-Za-z0-9]/.test(password)) s++;
+    return s; // 0..4
+  }, [password]);
+  const strengthLabel = ["Quá yếu", "Yếu", "Trung bình", "Khá", "Mạnh"][strength];
+  const strengthColor = [
+    "bg-destructive",
+    "bg-destructive",
+    "bg-amber-500",
+    "bg-blue-500",
+    "bg-emerald-500",
+  ][strength];
+
   return (
     <form
+      noValidate
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault();
-        if (username && password.length >= 8) onSubmit();
+        setTouched({ u: true, p: true, a: true });
+        if (!usernameError && !passwordError && agreed && username && password.length >= 8) {
+          onSubmit();
+        }
       }}
     >
+      <ValidatedField
+        label="Tên người dùng"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        onBlur={() => setTouched((t) => ({ ...t, u: true }))}
+        placeholder="nguyenvana"
+        autoComplete="username"
+        error={usernameError}
+        success={!usernameError && /^[a-z0-9_.]{3,20}$/i.test(username)}
+      />
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">Tên người dùng</label>
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="nguyenvana"
-          autoComplete="username"
-          required
-          className="h-11 w-full rounded-xl border border-border bg-card px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/15"
-        />
-      </div>
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">Mật khẩu</label>
-        <input
+        <ValidatedField
+          label="Mật khẩu"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          onBlur={() => setTouched((t) => ({ ...t, p: true }))}
           placeholder="Tối thiểu 8 ký tự"
           autoComplete="new-password"
-          required
-          minLength={8}
-          className="h-11 w-full rounded-xl border border-border bg-card px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/15"
+          error={passwordError}
         />
+        {password && !passwordError && (
+          <div className="space-y-1">
+            <div className="flex gap-1">
+              {[0, 1, 2, 3].map((i) => (
+                <span
+                  key={i}
+                  className={`h-1 flex-1 rounded-full transition-colors ${
+                    i < strength ? strengthColor : "bg-border"
+                  }`}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Độ mạnh: <span className="font-medium text-foreground">{strengthLabel}</span>
+            </p>
+          </div>
+        )}
       </div>
-      <label className="flex items-start gap-2 text-xs text-muted-foreground">
-        <input type="checkbox" required className="mt-0.5 h-4 w-4 rounded border-border" />
-        <span>
-          Tôi đồng ý với{" "}
-          <a href="#" className="text-primary hover:underline">Điều khoản</a> và{" "}
-          <a href="#" className="text-primary hover:underline">Chính sách bảo mật</a>.
-        </span>
-      </label>
+      <div>
+        <label
+          className={`flex items-start gap-2 text-xs ${
+            agreeError ? "text-destructive" : "text-muted-foreground"
+          }`}
+        >
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => {
+              setAgreed(e.target.checked);
+              setTouched((t) => ({ ...t, a: true }));
+            }}
+            className={`mt-0.5 h-4 w-4 rounded ${
+              agreeError ? "border-destructive" : "border-border"
+            }`}
+          />
+          <span>
+            Tôi đồng ý với{" "}
+            <a href="#" className="text-primary hover:underline">Điều khoản</a> và{" "}
+            <a href="#" className="text-primary hover:underline">Chính sách bảo mật</a>.
+          </span>
+        </label>
+        {agreeError && (
+          <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-destructive">
+            <AlertCircle className="h-3.5 w-3.5" />
+            {agreeError}
+          </p>
+        )}
+      </div>
       <PrimaryButton>Hoàn tất đăng ký</PrimaryButton>
       <button
         type="button"
