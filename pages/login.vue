@@ -6,28 +6,48 @@ useSeoMeta({
   ogDescription: 'Đăng nhập vào Glow để tiếp tục trò chuyện và kết nối.',
 })
 
-const email = ref('')
-const password = ref('')
-const emailTouched = ref(false)
-const passwordTouched = ref(false)
+const { init, login } = useAuth()
 
-const emailError = computed(() => {
-  if (!emailTouched.value) return null
-  if (!email.value) return 'Vui lòng nhập email.'
-  if (!/^\S+@\S+\.\S+$/.test(email.value)) return 'Email không hợp lệ. Ví dụ: ban@email.com'
+onMounted(() => {
+  init()
+})
+
+const account = ref('')
+const password = ref('')
+const accountTouched = ref(false)
+const passwordTouched = ref(false)
+const serverError = ref('')
+const loading = ref(false)
+
+const accountError = computed(() => {
+  if (!accountTouched.value) return null
+  if (!account.value.trim()) return 'Vui lòng nhập email hoặc tên đăng nhập.'
   return null
 })
 
 const passwordError = computed(() => {
   if (!passwordTouched.value) return null
   if (!password.value) return 'Vui lòng nhập mật khẩu.'
-  if (password.value.length < 8) return 'Mật khẩu cần tối thiểu 8 ký tự.'
+  if (password.value.length < 6) return 'Mật khẩu cần tối thiểu 6 ký tự.'
   return null
 })
 
-function handleSubmit() {
-  emailTouched.value = true
+async function handleSubmit() {
+  accountTouched.value = true
   passwordTouched.value = true
+  serverError.value = ''
+
+  if (accountError.value || passwordError.value) return
+
+  loading.value = true
+  const result = await login(account.value.trim(), password.value)
+  loading.value = false
+
+  if (result.ok) {
+    navigateTo('/messages')
+  } else {
+    serverError.value = result.message || 'Đăng nhập thất bại'
+  }
 }
 </script>
 
@@ -37,15 +57,22 @@ function handleSubmit() {
     subtitle="Đăng nhập để tiếp tục những cuộc trò chuyện của bạn."
   >
     <form novalidate class="space-y-4" @submit.prevent="handleSubmit">
+      <div
+        v-if="serverError"
+        class="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
+      >
+        {{ serverError }}
+      </div>
+
       <UiValidatedField
-        v-model="email"
-        label="Email"
-        type="email"
+        v-model="account"
+        label="Email hoặc tên đăng nhập"
+        type="text"
         placeholder="ban@email.com"
-        autocomplete="email"
-        :error="emailError"
-        :success="!emailError && /^\S+@\S+\.\S+$/.test(email)"
-        @blur="emailTouched = true"
+        autocomplete="username"
+        :error="accountError"
+        :success="!accountError && accountTouched && !!account.trim()"
+        @blur="accountTouched = true"
       />
       <div>
         <UiValidatedField
@@ -61,7 +88,10 @@ function handleSubmit() {
           <a href="#" class="text-xs text-muted-foreground hover:text-primary">Quên mật khẩu?</a>
         </div>
       </div>
-      <UiPrimaryButton>Đăng nhập</UiPrimaryButton>
+
+      <UiPrimaryButton :disabled="loading">
+        {{ loading ? 'Đang đăng nhập…' : 'Đăng nhập' }}
+      </UiPrimaryButton>
 
       <div class="flex items-center gap-3 pt-2 text-xs text-muted-foreground">
         <span class="h-px flex-1 bg-border" />

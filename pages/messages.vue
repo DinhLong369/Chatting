@@ -1,225 +1,766 @@
 <script setup lang="ts">
-import { ArrowLeft, Paperclip, Phone, Search, Send, Smile, Video } from 'lucide-vue-next'
+import { ArrowLeft, ImagePlus, MessageSquarePlus, Phone, Search, Send, Trash2, Video, X, Pencil, Check } from 'lucide-vue-next'
+import type { Conversation, ChatUser, ChatMessage } from '~/composables/useChat'
 
 useSeoMeta({
   title: 'Tin nhắn — Glow',
   description: 'Trò chuyện với bạn bè trên Glow.',
-  ogTitle: 'Tin nhắn — Glow',
-  ogDescription: 'Trò chuyện với bạn bè trên Glow.',
 })
 
-type Conversation = {
-  id: string
-  name: string
-  initial: string
-  preview: string
-  time: string
-  unread?: number
-  online?: boolean
+const { init, token, currentUser } = useAuth()
+const {
+  conversations,
+  activeConvId,
+  messages,
+  latestMessage,
+  typingUsers,
+  wsConnected,
+  connect,
+  disconnect,
+  loadConversations,
+  loadMessages,
+  searchUsers,
+  createDirectConversation,
+  deleteConversation,
+  deleteMessage,
+  updateMessage,
+  sendMessage,
+  uploadMedia,
+  sendTyping,
+  markSeen,
+  isOnline,
+  getConversationPartner,
+  formatLastSeen,
+  formatConvTime,
+  formatMsgTime,
+} = useChat()
+
+// ── Local UI state ──────────────────────────────────────────────────────────
+const mobileView = ref<'list' | 'thread'>('list')
+const draft = ref('')
+const convSearch = ref('')
+const newConvSearch = ref('')
+const newConvResults = ref<ChatUser[]>([])
+const newConvSearching = ref(false)
+const showNewConv = ref(false)
+const editingMsgId = ref<string | null>(null)
+const editContent = ref('')
+const messageListRef = ref<HTMLElement | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const uploadingImage = ref(false)
+const lightboxUrl = ref<string | null>(null)
+const loadedMediaIds = ref<Set<string>>(new Set())
+
+function isMediaLoaded(id: string) { return loadedMediaIds.value.has(id) }
+function markMediaLoaded(id: string) {
+  loadedMediaIds.value = new Set([...loadedMediaIds.value, id])
 }
 
-const conversations: Conversation[] = [
-  { id: '1', name: 'Minh Anh', initial: 'M', preview: 'Tối nay đi xem hoàng hôn không? 🌅', time: '2 phút', unread: 2, online: true },
-  { id: '2', name: 'Hà Linh', initial: 'H', preview: 'Gửi mình file thiết kế nhé!', time: '15 phút', online: true },
-  { id: '3', name: 'Nhóm K15', initial: 'K', preview: 'Quân: ok mai gặp nhé cả nhà', time: '1 giờ', unread: 5 },
-  { id: '4', name: 'Tuấn Kiệt', initial: 'T', preview: 'Cảm ơn bạn nhiều 🙏', time: '3 giờ' },
-  { id: '5', name: 'Phương Thảo', initial: 'P', preview: 'Bạn đã thả tim ảnh', time: 'Hôm qua' },
-  { id: '6', name: 'Đức Anh', initial: 'Đ', preview: 'Để mình kiểm tra lại nhé', time: 'Hôm qua' },
-]
-
-type Msg = { id: string; from: 'me' | 'them'; text: string; time: string }
-
-const thread = ref<Msg[]>([
-  { id: 'm1', from: 'them', text: 'Tối nay đi xem hoàng hôn không? 🌅', time: '17:02' },
-  { id: 'm2', from: 'me', text: 'Đi chứ! Hẹn 6h ở bờ hồ nhé.', time: '17:03' },
-  { id: 'm3', from: 'them', text: 'Deal 🤝 nhớ mang máy ảnh nha', time: '17:03' },
-  { id: 'm4', from: 'me', text: 'Ok luôn, mình mới mua ống kính mới đó.', time: '17:05' },
-  { id: 'm5', from: 'them', text: 'Wow ghen tị ghê 😆', time: '17:06' },
-])
-
-const activeId = ref('1')
-const draft = ref('')
-const mobileView = ref<'list' | 'thread'>('list')
-
-const active = computed(() => conversations.find(c => c.id === activeId.value)!)
-
-function send() {
-  if (!draft.value.trim()) return
-  const now = new Date()
-  thread.value.push({
-    id: `m${thread.value.length + 1}`,
-    from: 'me',
-    text: draft.value.trim(),
-    time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+// ── Computed ────────────────────────────────────────────────────────────────
+const filteredConversations = computed(() => {
+  if (!convSearch.value.trim()) return conversations.value
+  const q = convSearch.value.toLowerCase()
+  return conversations.value.filter(c => {
+    const p = getConversationPartner(c)
+    const name = (p?.name || p?.username || '').toLowerCase()
+    return name.includes(q)
   })
+})
+
+const activeConversation = computed<Conversation | undefined>(() =>
+  conversations.value.find(c => c.id === activeConvId.value),
+)
+const activePartner = computed<ChatUser | null>(() =>
+  activeConversation.value ? getConversationPartner(activeConversation.value) : null,
+)
+const activeMessages = computed<ChatMessage[]>(() =>
+  activeConvId.value ? (messages.value[activeConvId.value] ?? []) : [],
+)
+const isPartnerOnline = computed(() =>
+  activePartner.value ? isOnline(activePartner.value.id) : false,
+)
+const isPartnerTyping = computed(() => {
+  if (!activeConvId.value || !activePartner.value) return false
+  return (typingUsers.value[activeConvId.value] ?? []).includes(activePartner.value.id)
+})
+
+// ── Lifecycle ───────────────────────────────────────────────────────────────
+onMounted(async () => {
+  init()
+  if (!token.value) { navigateTo('/login'); return }
+  connect()
+  await loadConversations()
+})
+
+onUnmounted(() => disconnect())
+
+// Auto-scroll when messages arrive
+watch(activeMessages, async () => {
+  await nextTick()
+  scrollToBottom()
+}, { deep: true })
+
+// Load messages when switching conversation
+watch(activeConvId, async newId => {
+  if (!newId) return
+  if (!messages.value[newId]) await loadMessages(newId)
+  markSeen(newId)
+  await nextTick()
+  scrollToBottom()
+})
+
+// ── Methods ─────────────────────────────────────────────────────────────────
+function scrollToBottom() {
+  if (messageListRef.value) {
+    messageListRef.value.scrollTop = messageListRef.value.scrollHeight
+  }
+}
+
+function selectConversation(id: string) {
+  activeConvId.value = id
+  mobileView.value = 'thread'
+  showNewConv.value = false
+}
+
+let typingThrottle: ReturnType<typeof setTimeout> | null = null
+function handleDraftInput() {
+  if (!activeConvId.value || typingThrottle) return
+  sendTyping(activeConvId.value)
+  typingThrottle = setTimeout(() => { typingThrottle = null }, 2000)
+}
+
+function sendDraft() {
+  const text = draft.value.trim()
+  if (!text || !activeConvId.value) return
+  sendMessage(activeConvId.value, text)
   draft.value = ''
+}
+
+function handleDraftKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDraft() }
+}
+
+// Edit
+function startEdit(msg: ChatMessage) {
+  editingMsgId.value = msg.id
+  editContent.value = msg.content
+}
+function cancelEdit() { editingMsgId.value = null; editContent.value = '' }
+async function confirmEdit() {
+  if (!editContent.value.trim() || !activeConvId.value || !editingMsgId.value) return
+  await updateMessage(activeConvId.value, editingMsgId.value, editContent.value.trim())
+  cancelEdit()
+}
+
+// Delete
+async function confirmDelete(msgId: string) {
+  if (!activeConvId.value) return
+  await deleteMessage(activeConvId.value, msgId)
+}
+
+// New conversation search
+let searchDebounce: ReturnType<typeof setTimeout> | null = null
+function onNewConvInput() {
+  if (searchDebounce) clearTimeout(searchDebounce)
+  searchDebounce = setTimeout(async () => {
+    newConvSearching.value = true
+    newConvResults.value = await searchUsers(newConvSearch.value)
+    newConvSearching.value = false
+  }, 350)
+}
+
+async function startConversation(user: ChatUser) {
+  const conv = await createDirectConversation(user.id)
+  if (conv) selectConversation(conv.id)
+  newConvSearch.value = ''
+  newConvResults.value = []
+}
+
+// Image / video upload
+async function handleMediaUpload(file: File) {
+  if (!activeConvId.value) return
+  uploadingImage.value = true
+  const url = await uploadMedia(file)
+  uploadingImage.value = false
+  if (url) {
+    const msgType = file.type.startsWith('video/') ? 'video' : 'image'
+    sendMessage(activeConvId.value, url, msgType)
+  }
+}
+
+function handleFileSelected(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  if (fileInputRef.value) fileInputRef.value.value = ''
+  handleMediaUpload(file)
+}
+
+function onPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const it of items) {
+    if (it.type.startsWith('image/')) {
+      const file = it.getAsFile()
+      if (file) { e.preventDefault(); handleMediaUpload(file) }
+      break
+    }
+  }
+}
+
+// ── Media resolution ────────────────────────────────────────────────────────
+type MediaKind = 'image' | 'video' | 'gif' | 'sticker' | 'text'
+interface ResolvedMedia { kind: MediaKind; url: string | null }
+interface ResolvedMessage extends ChatMessage { _media: ResolvedMedia }
+
+const { public: { apiBase } } = useRuntimeConfig()
+
+function resolveMedia(msg: ChatMessage): ResolvedMedia {
+  // New format: explicit message_type
+  if (msg.message_type === 'image') return { kind: 'image', url: msg.content }
+  if (msg.message_type === 'video') return { kind: 'video', url: msg.content }
+  if (msg.message_type === 'gif') return { kind: 'gif', url: msg.content }
+  if (msg.message_type === 'sticker') return { kind: 'sticker', url: msg.content }
+
+  // Legacy format: __lh_media__:{"kind":"gif"|"image"|"video"|"sticker","url":"..."}
+  // Prefix '__lh_media__:' = 13 characters
+  if (msg.content.startsWith('__lh_media__:')) {
+    try {
+      const parsed = JSON.parse(msg.content.slice(13)) as { kind?: string; url?: string }
+      if (parsed.url) {
+        // Relative URL (sticker từ server) → prepend apiBase
+        const url = parsed.url.startsWith('/') ? `${apiBase}${parsed.url}` : parsed.url
+        const kind: MediaKind =
+          parsed.kind === 'video' ? 'video'
+          : parsed.kind === 'gif' ? 'gif'
+          : parsed.kind === 'sticker' ? 'sticker'
+          : 'image'
+        return { kind, url }
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Fallback: phát hiện qua URL khi server không trả về message_type đúng
+  const raw = msg.content.trim()
+  if (/^https?:\/\/\S+$/i.test(raw)) {
+    const clean = raw.split('?')[0]!.toLowerCase()
+    if (/\.(jpe?g|jpg|png|webp|avif|gif|bmp|svg)$/i.test(clean))
+      return { kind: clean.endsWith('.gif') ? 'gif' : 'image', url: raw }
+    if (/\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(clean))
+      return { kind: 'video', url: raw }
+  }
+
+  return { kind: 'text', url: null }
+}
+
+const resolvedMessages = computed<ResolvedMessage[]>(() =>
+  activeMessages.value.map(msg => ({ ...msg, _media: resolveMedia(msg) })),
+)
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function partnerName(conv: Conversation) {
+  const p = getConversationPartner(conv)
+  return p?.name || p?.username || 'Unknown'
+}
+function partnerInitial(conv: Conversation) {
+  return partnerName(conv).charAt(0).toUpperCase()
+}
+function convPreview(conv: Conversation) {
+  const last = latestMessage.value[conv.id]
+  if (!last) return ''
+  const isMe = last.sender_id === currentUser.value?.id
+  const prefix = isMe ? 'Bạn: ' : ''
+  const media = resolveMedia(last)
+  if (media.kind === 'image') return prefix + '📷 Ảnh'
+  if (media.kind === 'gif') return prefix + '🎞️ GIF'
+  if (media.kind === 'sticker') return prefix + '🩵 Sticker'
+  if (media.kind === 'video') return prefix + '🎥 Video'
+  const text = last.content
+  return prefix + (text.length > 40 ? text.slice(0, 40) + '…' : text)
+}
+function convTime(conv: Conversation) {
+  return formatConvTime(latestMessage.value[conv.id]?.created_at ?? conv.last_message_at)
+}
+function isOwnMessage(msg: ChatMessage) {
+  return msg.sender_id === currentUser.value?.id
+}
+function partnerStatusText() {
+  if (!activePartner.value) return ''
+  if (isPartnerOnline.value) return 'đang hoạt động'
+  return 'hoạt động ' + formatLastSeen(activePartner.value)
 }
 </script>
 
 <template>
-  <div class="min-h-screen" :style="{ background: 'var(--gradient-soft)' }">
-    <AppHeader />
-    <main class="mx-auto max-w-6xl px-0 py-0 sm:px-4 sm:py-4 md:px-6 md:py-6">
+  <div class="h-dvh overflow-hidden" :style="{ background: 'var(--gradient-soft)' }">
+    <main class="h-full sm:p-4 md:p-6">
       <div
-        class="grid h-[calc(100dvh-4rem)] grid-cols-1 overflow-hidden border-border bg-card sm:h-[calc(100dvh-6rem)] sm:rounded-3xl sm:border md:h-[calc(100dvh-7rem)] md:grid-cols-[280px_1fr] lg:grid-cols-[320px_1fr]"
+        class="grid h-full grid-cols-1 overflow-hidden border-border bg-card sm:rounded-3xl sm:border md:grid-cols-[300px_1fr] lg:grid-cols-[340px_1fr]"
         :style="{ boxShadow: 'var(--shadow-soft)' }"
       >
-        <!-- Sidebar -->
+        <!-- ── Sidebar ───────────────────────────────────────────────────── -->
         <aside
           :class="[
             'min-h-0 flex-col border-border md:flex md:border-r',
             mobileView === 'list' ? 'flex' : 'hidden',
           ]"
         >
+          <!-- Sidebar header -->
           <div class="border-b border-border p-4">
-            <h2 class="text-lg font-semibold">Tin nhắn</h2>
-            <div class="relative mt-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-lg font-semibold">Tin nhắn</h2>
+              <div class="flex items-center gap-1">
+                <!-- WS indicator -->
+                <span
+                  :title="wsConnected ? 'Đã kết nối' : 'Đang kết nối…'"
+                  :class="['h-2 w-2 rounded-full', wsConnected ? 'bg-green-500' : 'bg-yellow-400']"
+                />
+                <!-- New conversation button -->
+                <button
+                  class="ml-1 rounded-full p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  title="Nhắn tin mới"
+                  @click="showNewConv = !showNewConv; newConvSearch = ''; newConvResults = []"
+                >
+                  <MessageSquarePlus class="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <!-- New conversation search -->
+            <div v-if="showNewConv" class="mt-3">
+              <div class="relative">
+                <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  v-model="newConvSearch"
+                  placeholder="Tìm người dùng…"
+                  class="h-10 w-full rounded-full bg-secondary pl-9 pr-9 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  @input="onNewConvInput"
+                />
+                <button
+                  v-if="newConvSearch"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  @click="newConvSearch = ''; newConvResults = []"
+                >
+                  <X class="h-4 w-4" />
+                </button>
+              </div>
+              <div v-if="newConvResults.length" class="mt-2 space-y-1">
+                <button
+                  v-for="u in newConvResults"
+                  :key="u.id"
+                  class="flex w-full items-center gap-3 rounded-xl p-2 hover:bg-secondary"
+                  @click="startConversation(u)"
+                >
+                  <div
+                    class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground"
+                    :style="{ background: 'var(--gradient-warm)' }"
+                  >
+                    {{ (u.name || u.username || '?').charAt(0).toUpperCase() }}
+                    <span
+                      v-if="isOnline(u.id)"
+                      class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-green-500"
+                    />
+                  </div>
+                  <div class="min-w-0 text-left">
+                    <div class="truncate text-sm font-medium">{{ u.name || u.username }}</div>
+                    <div class="truncate text-xs text-muted-foreground">@{{ u.username }}</div>
+                  </div>
+                </button>
+              </div>
+              <p v-else-if="newConvSearch && !newConvSearching" class="mt-2 text-center text-xs text-muted-foreground">
+                Không tìm thấy người dùng.
+              </p>
+            </div>
+
+            <!-- Conversation search -->
+            <div v-else class="relative mt-3">
               <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
+                v-model="convSearch"
                 placeholder="Tìm kiếm cuộc trò chuyện"
                 class="h-10 w-full rounded-full bg-secondary pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
             </div>
           </div>
+
+          <!-- Conversation list -->
           <div class="min-h-0 flex-1 overflow-y-auto p-2">
+            <p v-if="!conversations.length" class="mt-6 text-center text-sm text-muted-foreground">
+              Chưa có cuộc trò chuyện nào.
+            </p>
             <button
-              v-for="c in conversations"
+              v-for="c in filteredConversations"
               :key="c.id"
               :class="[
                 'flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors',
-                activeId === c.id ? 'bg-accent' : 'hover:bg-secondary',
+                activeConvId === c.id ? 'bg-accent' : 'hover:bg-secondary',
               ]"
-              @click="activeId = c.id; mobileView = 'thread'"
+              @click="selectConversation(c.id)"
             >
-              <div class="relative">
+              <!-- Avatar + online dot -->
+              <div class="relative shrink-0">
                 <div
                   class="flex h-11 w-11 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
                   :style="{ background: 'var(--gradient-warm)' }"
                 >
-                  {{ c.initial }}
+                  {{ partnerInitial(c) }}
                 </div>
                 <span
-                  v-if="c.online"
+                  v-if="getConversationPartner(c) && isOnline(getConversationPartner(c)!.id)"
                   class="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card bg-green-500"
                 />
               </div>
+
+              <!-- Name + preview + time -->
               <div class="min-w-0 flex-1">
                 <div class="flex items-center justify-between gap-2">
-                  <span class="truncate text-sm font-semibold">{{ c.name }}</span>
-                  <span class="shrink-0 text-[11px] text-muted-foreground">{{ c.time }}</span>
+                  <span class="truncate text-sm font-semibold">{{ partnerName(c) }}</span>
+                  <span class="shrink-0 text-[11px] text-muted-foreground">{{ convTime(c) }}</span>
                 </div>
-                <div class="flex items-center justify-between gap-2">
-                  <span class="truncate text-xs text-muted-foreground">{{ c.preview }}</span>
-                  <span
-                    v-if="c.unread"
-                    class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground"
-                    :style="{ background: 'var(--gradient-warm)' }"
-                  >{{ c.unread }}</span>
-                </div>
+                <p class="truncate text-xs text-muted-foreground">{{ convPreview(c) }}</p>
               </div>
             </button>
           </div>
         </aside>
 
-        <!-- Thread -->
+        <!-- ── Thread ────────────────────────────────────────────────────── -->
         <section
           :class="[
             'min-h-0 flex-col md:flex',
             mobileView === 'thread' ? 'flex' : 'hidden',
           ]"
         >
-          <header class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3 sm:px-6 sm:py-4">
-            <div class="flex min-w-0 items-center gap-2 sm:gap-3">
+          <!-- Thread header -->
+          <header
+            v-if="activeConversation"
+            class="flex items-center gap-2 border-b border-border px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-4"
+          >
+            <!-- Left: back + avatar + info -->
+            <div class="flex min-w-0 flex-1 items-center gap-2">
               <button
                 type="button"
-                class="-ml-1 rounded-full p-2 text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
+                class="-ml-1 shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
                 aria-label="Quay lại"
-                @click="mobileView = 'list'"
+                @click="mobileView = 'list'; activeConvId = null"
               >
                 <ArrowLeft class="h-5 w-5" />
               </button>
               <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
+                class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground sm:h-10 sm:w-10"
                 :style="{ background: 'var(--gradient-warm)' }"
               >
-                {{ active.initial }}
+                {{ partnerInitial(activeConversation) }}
+                <span
+                  v-if="isPartnerOnline"
+                  class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-green-500"
+                />
               </div>
-              <div class="min-w-0">
-                <div class="truncate text-sm font-semibold">{{ active.name }}</div>
-                <div class="text-xs text-primary">
-                  {{ active.online ? 'đang hoạt động' : 'ngoại tuyến' }}
+              <div class="min-w-0 flex-1 overflow-hidden">
+                <div class="truncate text-sm font-semibold">{{ partnerName(activeConversation) }}</div>
+                <div :class="['truncate text-xs', isPartnerOnline ? 'text-green-500' : 'text-muted-foreground']">
+                  {{ partnerStatusText() }}
                 </div>
               </div>
             </div>
-            <div />
-            <div class="flex items-center gap-1 text-muted-foreground">
-              <button class="rounded-full p-2 hover:bg-accent hover:text-foreground">
+            <!-- Right: actions (phone/video ẩn trên mobile) -->
+            <div class="flex shrink-0 items-center gap-0.5 text-muted-foreground sm:gap-1">
+              <button
+                class="hidden rounded-full p-2 hover:bg-accent hover:text-foreground sm:flex"
+                title="Gọi thoại"
+              >
                 <Phone class="h-4 w-4" />
               </button>
-              <button class="rounded-full p-2 hover:bg-accent hover:text-foreground">
+              <button
+                class="hidden rounded-full p-2 hover:bg-accent hover:text-foreground sm:flex"
+                title="Gọi video"
+              >
                 <Video class="h-4 w-4" />
+              </button>
+              <button
+                class="rounded-full p-2 text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+                title="Xoá cuộc trò chuyện"
+                @click="deleteConversation(activeConversation.id)"
+              >
+                <Trash2 class="h-4 w-4" />
               </button>
             </div>
           </header>
 
-          <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
-            <div class="text-center text-[11px] uppercase tracking-wider text-muted-foreground">
-              Hôm nay
-            </div>
+          <!-- Empty state: no active conversation -->
+          <div
+            v-if="!activeConversation"
+            class="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground"
+          >
+            <MessageSquarePlus class="h-12 w-12 opacity-30" />
+            <p class="text-sm">Chọn một cuộc trò chuyện hoặc nhắn tin mới</p>
+          </div>
+
+          <!-- Message list -->
+          <div
+            v-else
+            ref="messageListRef"
+            class="min-h-0 flex-1 space-y-1.5 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-5 sm:py-5"
+          >
             <div
-              v-for="m in thread"
-              :key="m.id"
-              :class="['flex', m.from === 'me' ? 'justify-end' : 'justify-start']"
+              v-for="msg in resolvedMessages"
+              :key="msg.id"
+              :class="['group flex w-full min-w-0', isOwnMessage(msg) ? 'justify-end' : 'justify-start']"
             >
-              <div
-                :class="[
-                  'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm sm:max-w-[70%]',
-                  m.from === 'me'
-                    ? 'rounded-tr-md text-primary-foreground'
-                    : 'rounded-tl-md bg-muted text-foreground',
-                ]"
-                :style="m.from === 'me' ? { background: 'var(--gradient-warm)' } : undefined"
-              >
-                {{ m.text }}
-                <div
-                  :class="[
-                    'mt-1 text-[10px]',
-                    m.from === 'me' ? 'text-primary-foreground/70' : 'text-muted-foreground',
-                  ]"
-                >
-                  {{ m.time }}
+              <!-- Bubble wrapper -->
+              <div class="flex min-w-0 max-w-[80%] flex-col sm:max-w-[65%]">
+
+                <!-- ── Edit mode (text only) ── -->
+                <div v-if="editingMsgId === msg.id" class="flex items-end gap-2">
+                  <textarea
+                    v-model="editContent"
+                    rows="2"
+                    class="flex-1 resize-none rounded-2xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    @keydown.enter.exact.prevent="confirmEdit"
+                    @keydown.escape="cancelEdit"
+                  />
+                  <div class="flex flex-col gap-1 pb-1">
+                    <button class="rounded-full p-1.5 text-green-600 hover:bg-green-100" title="Xác nhận" @click="confirmEdit">
+                      <Check class="h-4 w-4" />
+                    </button>
+                    <button class="rounded-full p-1.5 text-muted-foreground hover:bg-secondary" title="Huỷ" @click="cancelEdit">
+                      <X class="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
+
+                <!-- ── Normal bubble ── -->
+                <div v-else class="flex items-end gap-1">
+
+                  <!-- Action buttons: own messages, hover on desktop / long-press intent on mobile -->
+                  <div
+                    v-if="isOwnMessage(msg)"
+                    class="mb-0.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <!-- Chỉ cho sửa tin nhắn text -->
+                    <button
+                      v-if="msg._media.kind === 'text'"
+                      class="rounded-full p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      title="Chỉnh sửa"
+                      @click="startEdit(msg)"
+                    >
+                      <Pencil class="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      class="rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      title="Xoá"
+                      @click="confirmDelete(msg.id)"
+                    >
+                      <Trash2 class="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <!-- ── IMAGE / GIF / STICKER ── -->
+                  <div
+                    v-if="msg._media.kind === 'image' || msg._media.kind === 'gif' || msg._media.kind === 'sticker'"
+                    :class="[
+                      'overflow-hidden rounded-2xl bg-muted',
+                      isOwnMessage(msg) ? 'rounded-tr-sm' : 'rounded-tl-sm',
+                    ]"
+                    style="min-width: 120px"
+                  >
+                    <!-- Skeleton hiển thị khi ảnh S3 chưa tải xong -->
+                    <div
+                      v-if="!isMediaLoaded(msg.id)"
+                      class="flex h-40 w-[200px] max-w-full items-center justify-center sm:h-52 sm:w-[240px]"
+                    >
+                      <span class="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+                    </div>
+                    <img
+                      :src="msg._media.url!"
+                      alt="ảnh"
+                      referrerpolicy="no-referrer"
+                      :class="[
+                        'block max-h-64 max-w-full cursor-zoom-in object-cover transition-opacity hover:opacity-90 sm:max-h-80',
+                        isMediaLoaded(msg.id) ? 'opacity-100' : 'absolute inset-0 h-0 w-0 opacity-0',
+                      ]"
+                      style="min-width: 120px"
+                      loading="lazy"
+                      @load="markMediaLoaded(msg.id)"
+                      @error="markMediaLoaded(msg.id)"
+                      @click="lightboxUrl = msg._media.url"
+                    />
+                    <div
+                      :class="[
+                        'bg-black/20 px-2 pb-1.5 pt-0.5 text-[10px] text-white/80',
+                        isOwnMessage(msg) ? 'text-right' : 'text-left',
+                      ]"
+                    >
+                      {{ formatMsgTime(msg.created_at) }}
+                    </div>
+                  </div>
+
+                  <!-- ── VIDEO ── -->
+                  <div
+                    v-else-if="msg._media.kind === 'video'"
+                    :class="[
+                      'overflow-hidden rounded-2xl bg-black',
+                      isOwnMessage(msg) ? 'rounded-tr-sm' : 'rounded-tl-sm',
+                    ]"
+                    style="min-width: 180px"
+                  >
+                    <!-- Skeleton khi video chưa sẵn sàng -->
+                    <div
+                      v-if="!isMediaLoaded(msg.id)"
+                      class="flex h-40 w-[240px] max-w-full items-center justify-center sm:h-48 sm:w-[280px]"
+                    >
+                      <span class="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
+                    </div>
+                    <video
+                      :src="msg._media.url!"
+                      controls
+                      playsinline
+                      preload="metadata"
+                      :class="[
+                        'block max-h-64 max-w-full sm:max-h-80',
+                        isMediaLoaded(msg.id) ? 'opacity-100' : 'h-0 opacity-0',
+                      ]"
+                      style="min-width: 180px"
+                      @loadedmetadata="markMediaLoaded(msg.id)"
+                      @error="markMediaLoaded(msg.id)"
+                    />
+                    <div
+                      :class="[
+                        'bg-black/30 px-2 pb-1.5 pt-0.5 text-[10px] text-white/70',
+                        isOwnMessage(msg) ? 'text-right' : 'text-left',
+                      ]"
+                    >
+                      {{ formatMsgTime(msg.created_at) }}
+                    </div>
+                  </div>
+
+                  <!-- ── TEXT ── -->
+                  <div
+                    v-else
+                    :class="[
+                      'max-w-full break-words rounded-2xl px-3.5 py-2 text-sm sm:px-4 sm:py-2.5',
+                      isOwnMessage(msg)
+                        ? 'rounded-tr-md text-primary-foreground'
+                        : 'rounded-tl-md bg-muted text-foreground',
+                    ]"
+                    :style="isOwnMessage(msg) ? { background: 'var(--gradient-warm)' } : undefined"
+                  >
+                    <span class="whitespace-pre-wrap break-all">{{ msg.content }}</span>
+                    <div
+                      :class="[
+                        'mt-0.5 text-[10px]',
+                        isOwnMessage(msg) ? 'text-primary-foreground/60' : 'text-muted-foreground',
+                      ]"
+                    >
+                      {{ formatMsgTime(msg.created_at) }}
+                      <span v-if="msg.updated_at && msg.updated_at !== msg.created_at"> · đã sửa</span>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+            <!-- Typing indicator -->
+            <div v-if="isPartnerTyping" class="flex justify-start">
+              <div class="rounded-2xl rounded-tl-md bg-muted px-4 py-2.5">
+                <span class="inline-flex gap-1">
+                  <span class="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:0ms]" />
+                  <span class="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:150ms]" />
+                  <span class="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:300ms]" />
+                </span>
               </div>
             </div>
           </div>
 
-          <form class="border-t border-border p-3 sm:p-4" @submit.prevent="send">
-            <div class="flex items-center gap-1.5 rounded-2xl border border-border bg-background px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2">
-              <button type="button" class="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-accent">
-                <Paperclip class="h-4 w-4" />
-              </button>
-              <input
-                v-model="draft"
-                placeholder="Nhập tin nhắn…"
-                class="min-w-0 flex-1 bg-transparent px-1 text-sm placeholder:text-muted-foreground focus:outline-none"
-              />
+          <!-- Compose bar -->
+          <form
+            v-if="activeConversation"
+            class="border-t border-border p-3 sm:p-4"
+            @submit.prevent="sendDraft"
+          >
+            <!-- Hidden file input -->
+            <input
+              ref="fileInputRef"
+              type="file"
+              accept="image/*,video/*"
+              class="hidden"
+              @change="handleFileSelected"
+            />
+
+            <div class="flex items-end gap-2 rounded-2xl border border-border bg-background px-3 py-2">
+              <!-- Image upload button -->
               <button
                 type="button"
-                class="hidden shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-accent sm:inline-flex"
+                :disabled="uploadingImage"
+                class="shrink-0 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                title="Gửi ảnh / video"
+                @click="fileInputRef?.click()"
               >
-                <Smile class="h-4 w-4" />
+                <span v-if="uploadingImage" class="flex h-4 w-4 items-center justify-center">
+                  <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                </span>
+                <ImagePlus v-else class="h-4 w-4" />
               </button>
+
+              <textarea
+                v-model="draft"
+                rows="1"
+                placeholder="Nhập tin nhắn… (Ctrl+V để dán ảnh)"
+                class="max-h-32 min-h-[2rem] flex-1 resize-none bg-transparent text-sm leading-6 placeholder:text-muted-foreground focus:outline-none"
+                @input="handleDraftInput"
+                @keydown="handleDraftKeydown"
+                @paste="onPaste"
+              />
               <button
                 type="submit"
-                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-primary-foreground"
+                :disabled="!draft.trim()"
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-primary-foreground transition-opacity disabled:opacity-40"
                 :style="{ background: 'var(--gradient-warm)' }"
               >
                 <Send class="h-4 w-4" />
               </button>
             </div>
+            <p class="mt-1 hidden text-[11px] text-muted-foreground sm:block">Enter để gửi · Shift+Enter xuống dòng</p>
           </form>
         </section>
       </div>
     </main>
+
+    <!-- Lightbox -->
+
+    <Teleport to="body">
+      <Transition name="lb">
+        <div
+          v-if="lightboxUrl"
+          class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90"
+          @click.self="lightboxUrl = null"
+        >
+          <!-- Close button — safe-area aware -->
+          <button
+            class="absolute right-4 top-4 z-10 rounded-full bg-white/15 p-2.5 text-white backdrop-blur-sm hover:bg-white/25 active:scale-95"
+            style="top: max(1rem, env(safe-area-inset-top))"
+            @click="lightboxUrl = null"
+          >
+            <X class="h-5 w-5" />
+          </button>
+
+          <!-- Image fills screen, tap outside to close -->
+          <img
+            :src="lightboxUrl"
+            alt="ảnh phóng to"
+            class="max-h-[92dvh] max-w-[96dvw] select-none rounded-lg object-contain shadow-2xl"
+            draggable="false"
+            @click.stop
+          />
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* Lightbox fade */
+.lb-enter-active,
+.lb-leave-active { transition: opacity 0.18s ease; }
+.lb-enter-from,
+.lb-leave-to { opacity: 0; }
+</style>
