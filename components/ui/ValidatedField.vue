@@ -31,7 +31,7 @@ const showMessage = computed(() => !!props.error || !!props.hint)
 
 <template>
   <div class="space-y-1.5">
-    <label :for="fieldId" class="text-sm font-medium text-foreground">{{ label }}</label>
+    <label :for="fieldId" class="text-base font-medium text-foreground">{{ label }}</label>
     <div class="relative">
       <input
         :id="fieldId"
@@ -41,7 +41,7 @@ const showMessage = computed(() => !!props.error || !!props.hint)
         :aria-invalid="!!error"
         :value="modelValue"
         :class="[
-          'h-11 w-full rounded-xl border bg-card px-4 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none transition-all focus:ring-4',
+          'h-12 w-full rounded-xl border bg-card px-4 text-base text-foreground placeholder:text-muted-foreground/70 outline-none transition-all focus:ring-4',
           state !== 'idle' ? 'pr-10' : '',
           ringClass,
         ]"
@@ -64,12 +64,12 @@ const showMessage = computed(() => !!props.error || !!props.hint)
           v-if="error"
           :id="`${fieldId}-err`"
           role="alert"
-          class="flex items-center gap-1.5 text-xs font-medium text-destructive"
+          class="flex items-center gap-1.5 text-sm font-medium text-destructive"
         >
-          <AlertCircle class="h-3.5 w-3.5 shrink-0" />
+          <AlertCircle class="h-4 w-4 shrink-0" />
           <span>{{ error }}</span>
         </p>
-        <p v-else-if="hint" :id="`${fieldId}-hint`" class="text-xs text-muted-foreground">
+        <p v-else-if="hint" :id="`${fieldId}-hint`" class="text-sm text-muted-foreground">
           {{ hint }}
         </p>
       </div>

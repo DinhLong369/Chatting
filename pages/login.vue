@@ -1,9 +1,9 @@
 <script setup lang="ts">
 useSeoMeta({
-  title: 'Đăng nhập — Glow',
-  description: 'Đăng nhập vào Glow để tiếp tục trò chuyện và kết nối.',
-  ogTitle: 'Đăng nhập — Glow',
-  ogDescription: 'Đăng nhập vào Glow để tiếp tục trò chuyện và kết nối.',
+  title: 'Đăng nhập — Logea',
+  description: 'Đăng nhập vào Logea để tiếp tục trò chuyện và kết nối.',
+  ogTitle: 'Đăng nhập — Logea',
+  ogDescription: 'Đăng nhập vào Logea để tiếp tục trò chuyện và kết nối.',
 })
 
 const { init, login } = useAuth()
@@ -59,7 +59,7 @@ async function handleSubmit() {
     <form novalidate class="space-y-4" @submit.prevent="handleSubmit">
       <div
         v-if="serverError"
-        class="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
+        class="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-base text-destructive"
       >
         {{ serverError }}
       </div>
@@ -68,7 +68,7 @@ async function handleSubmit() {
         v-model="account"
         label="Email hoặc tên đăng nhập"
         type="text"
-        placeholder="ban@email.com"
+        placeholder="xxx@gmail.com"
         autocomplete="username"
         :error="accountError"
         :success="!accountError && accountTouched && !!account.trim()"
@@ -85,7 +85,7 @@ async function handleSubmit() {
           @blur="passwordTouched = true"
         />
         <div class="mt-2 text-right">
-          <a href="#" class="text-xs text-muted-foreground hover:text-primary">Quên mật khẩu?</a>
+          <a href="#" class="text-sm text-muted-foreground hover:text-primary">Quên mật khẩu?</a>
         </div>
       </div>
 
@@ -93,14 +93,14 @@ async function handleSubmit() {
         {{ loading ? 'Đang đăng nhập…' : 'Đăng nhập' }}
       </UiPrimaryButton>
 
-      <div class="flex items-center gap-3 pt-2 text-xs text-muted-foreground">
+      <div class="flex items-center gap-3 pt-2 text-sm text-muted-foreground">
         <span class="h-px flex-1 bg-border" />
         hoặc tiếp tục với
         <span class="h-px flex-1 bg-border" />
       </div>
       <div class="flex gap-3">
         <UiSocialButton>Google</UiSocialButton>
-        <UiSocialButton>Apple</UiSocialButton>
+        <!-- <UiSocialButton>Apple</UiSocialButton> -->
       </div>
     </form>
 

@@ -3,8 +3,8 @@ import { ArrowLeft, ImagePlus, MessageSquarePlus, Phone, Search, Send, Trash2, V
 import type { Conversation, ChatUser, ChatMessage } from '~/composables/useChat'
 
 useSeoMeta({
-  title: 'Tin nhắn — Glow',
-  description: 'Trò chuyện với bạn bè trên Glow.',
+  title: 'Tin nhắn — Logea',
+  description: 'Trò chuyện với bạn bè trên Logea.',
 })
 
 const { init, token, currentUser } = useAuth()
@@ -704,7 +704,7 @@ function partnerStatusText() {
               <textarea
                 v-model="draft"
                 rows="1"
-                placeholder="Nhập tin nhắn… (Ctrl+V để dán ảnh)"
+                placeholder="Nhập tin nhắn…"
                 class="max-h-32 min-h-[2rem] flex-1 resize-none bg-transparent text-sm leading-6 placeholder:text-muted-foreground focus:outline-none"
                 @input="handleDraftInput"
                 @keydown="handleDraftKeydown"
@@ -719,7 +719,7 @@ function partnerStatusText() {
                 <Send class="h-4 w-4" />
               </button>
             </div>
-            <p class="mt-1 hidden text-[11px] text-muted-foreground sm:block">Enter để gửi · Shift+Enter xuống dòng</p>
+            <!-- <p class="mt-1 hidden text-[11px] text-muted-foreground sm:block">Enter để gửi · Shift+Enter xuống dòng</p> -->
           </form>
         </section>
       </div>

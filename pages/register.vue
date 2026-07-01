@@ -2,10 +2,10 @@
 import { AlertCircle, ArrowLeft, CheckCircle2, Mail, ShieldCheck, UserPlus } from 'lucide-vue-next'
 
 useSeoMeta({
-  title: 'Đăng ký — Glow',
-  description: 'Tạo tài khoản Glow để bắt đầu kết nối và trò chuyện.',
-  ogTitle: 'Đăng ký — Glow',
-  ogDescription: 'Tạo tài khoản Glow để bắt đầu kết nối và trò chuyện.',
+  title: 'Đăng ký — Logea',
+  description: 'Tạo tài khoản Logea để bắt đầu kết nối và trò chuyện.',
+  ogTitle: 'Đăng ký — Logea',
+  ogDescription: 'Tạo tài khoản Logea để bắt đầu kết nối và trò chuyện.',
 })
 
 const step = ref<1 | 2 | 3>(1)
@@ -16,7 +16,7 @@ const password = ref('')
 const done = ref(false)
 
 const current = computed(() => {
-  if (done.value) return { t: 'Tạo tài khoản thành công', s: 'Chào mừng bạn đến với Glow!' }
+  if (done.value) return { t: 'Tạo tài khoản thành công', s: 'Chào mừng bạn đến với Logea!' }
   const titles = {
     1: { t: 'Đăng ký với email', s: 'Chúng tôi sẽ gửi mã xác thực 6 số đến email của bạn.' },
     2: { t: 'Nhập mã xác thực', s: `Mã đã được gửi tới ${email.value || 'email của bạn'}.` },
@@ -37,7 +37,7 @@ const emailValid = computed(() => /^\S+@\S+\.\S+$/.test(email.value))
 const emailError = computed(() => {
   if (!emailTouched.value) return null
   if (!email.value) return 'Vui lòng nhập email của bạn.'
-  if (!emailValid.value) return 'Email không hợp lệ. Ví dụ: ban@email.com'
+  if (!emailValid.value) return 'Email không hợp lệ. Ví dụ: xxx@gmail.com'
   return null
 })
 function submitEmail() {
@@ -131,7 +131,7 @@ function submitProfile() {
       <li v-for="(item, i) in steps" :key="item.n" class="flex flex-1 items-center gap-2">
         <div
           :class="[
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-colors',
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition-colors',
             step > item.n
               ? 'border-transparent bg-primary text-primary-foreground'
               : step === item.n
@@ -146,7 +146,7 @@ function submitProfile() {
         </div>
         <span
           :class="[
-            'hidden text-xs font-medium sm:inline',
+            'hidden text-sm font-medium sm:inline',
             step === item.n || step > item.n ? 'text-foreground' : 'text-muted-foreground',
           ]"
         >{{ item.label }}</span>
@@ -160,7 +160,7 @@ function submitProfile() {
         v-model="email"
         label="Email"
         type="email"
-        placeholder="ban@email.com"
+        placeholder="xxx@gmail.com"
         autocomplete="email"
         :error="emailError"
         :success="!emailError && emailValid"
@@ -183,7 +183,7 @@ function submitProfile() {
             maxlength="1"
             :aria-invalid="!!otpError"
             :class="[
-              'h-14 w-12 rounded-xl border bg-card text-center text-lg font-semibold text-foreground outline-none transition-all focus:ring-4',
+              'h-16 w-14 rounded-xl border bg-card text-center text-xl font-semibold text-foreground outline-none transition-all focus:ring-4',
               otpError
                 ? 'border-destructive/60 focus:border-destructive focus:ring-destructive/20'
                 : d
@@ -196,23 +196,23 @@ function submitProfile() {
           />
         </div>
         <div class="mt-2">
-          <p v-if="otpError" role="alert" class="flex items-center gap-1.5 text-xs font-medium text-destructive">
-            <AlertCircle class="h-3.5 w-3.5 shrink-0" />
+          <p v-if="otpError" role="alert" class="flex items-center gap-1.5 text-sm font-medium text-destructive">
+            <AlertCircle class="h-4 w-4 shrink-0" />
             {{ otpError }}
           </p>
         </div>
       </div>
-      <div class="flex items-center justify-between text-xs text-muted-foreground">
+      <div class="flex items-center justify-between text-sm text-muted-foreground">
         <span>Không nhận được mã?</span>
         <button type="button" class="font-medium text-primary hover:underline">Gửi lại</button>
       </div>
       <UiPrimaryButton>Xác thực</UiPrimaryButton>
       <button
         type="button"
-        class="flex w-full items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        class="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         @click="step = 1"
       >
-        <ArrowLeft class="h-3.5 w-3.5" />
+        <ArrowLeft class="h-4 w-4" />
         Đổi email khác ({{ email || '—' }})
       </button>
     </form>
@@ -246,17 +246,17 @@ function submitProfile() {
               :class="['h-1 flex-1 rounded-full transition-colors', i <= strength ? strengthColor : 'bg-border']"
             />
           </div>
-          <p class="text-xs text-muted-foreground">
+          <p class="text-sm text-muted-foreground">
             Độ mạnh: <span class="font-medium text-foreground">{{ strengthLabel }}</span>
           </p>
         </div>
       </div>
       <div>
-        <label :class="['flex items-start gap-2 text-xs', agreeError ? 'text-destructive' : 'text-muted-foreground']">
+        <label :class="['flex items-start gap-2 text-sm', agreeError ? 'text-destructive' : 'text-muted-foreground']">
           <input
             type="checkbox"
             :checked="agreed"
-            :class="['mt-0.5 h-4 w-4 rounded', agreeError ? 'border-destructive' : 'border-border']"
+            :class="['mt-0.5 h-5 w-5 rounded', agreeError ? 'border-destructive' : 'border-border']"
             @change="agreed = ($event.target as HTMLInputElement).checked; agreedTouched = true"
           />
           <span>
@@ -265,18 +265,18 @@ function submitProfile() {
             <a href="#" class="text-primary hover:underline">Chính sách bảo mật</a>.
           </span>
         </label>
-        <p v-if="agreeError" class="mt-1 flex items-center gap-1.5 text-xs font-medium text-destructive">
-          <AlertCircle class="h-3.5 w-3.5" />
+        <p v-if="agreeError" class="mt-1 flex items-center gap-1.5 text-sm font-medium text-destructive">
+          <AlertCircle class="h-4 w-4" />
           {{ agreeError }}
         </p>
       </div>
       <UiPrimaryButton>Hoàn tất đăng ký</UiPrimaryButton>
       <button
         type="button"
-        class="flex w-full items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        class="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         @click="step = 2"
       >
-        <ArrowLeft class="h-3.5 w-3.5" />
+        <ArrowLeft class="h-4 w-4" />
         Quay lại
       </button>
     </form>
@@ -286,12 +286,12 @@ function submitProfile() {
       <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
         <CheckCircle2 class="h-8 w-8" />
       </div>
-      <p class="text-sm text-muted-foreground">
+      <p class="text-base text-muted-foreground">
         Tài khoản của bạn đã sẵn sàng. Bắt đầu kết nối với mọi người ngay nào.
       </p>
       <NuxtLink
         to="/messages"
-        class="inline-flex h-11 w-full items-center justify-center rounded-xl text-sm font-semibold text-primary-foreground shadow-md"
+        class="inline-flex h-12 w-full items-center justify-center rounded-xl text-base font-semibold text-primary-foreground shadow-md"
         :style="{ background: 'var(--gradient-warm)', boxShadow: 'var(--shadow-warm)' }"
       >
         Vào trò chuyện
