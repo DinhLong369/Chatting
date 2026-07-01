@@ -23,10 +23,9 @@ import { MessageCircle, Sparkles } from 'lucide-vue-next'
           <MessageCircle class="h-5 w-5" />
           <span class="hidden sm:inline">Tin nhắn</span>
         </NuxtLink> -->
-        <!-- Đăng nhập: ẩn trên mobile -->
         <NuxtLink
           to="/login"
-          class="hidden rounded-full px-4 py-2 font-medium text-muted-foreground transition-colors hover:text-foreground sm:block"
+          class="rounded-full px-3 py-1.5 text-base font-medium text-muted-foreground transition-colors hover:text-foreground sm:px-4 sm:py-2"
         >
           Đăng nhập
         </NuxtLink>
