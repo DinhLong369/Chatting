@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ImagePlus, MessageSquarePlus, MoreHorizontal, Phone, Search, Send, Trash2, Video, X, Pencil, Check } from 'lucide-vue-next'
+import { ArrowLeft, ImagePlus, LogOut, MessageSquarePlus, MoreHorizontal, Phone, Search, Send, Settings, Trash2, Video, X, Pencil, Check } from 'lucide-vue-next'
 import type { Conversation, ChatUser, ChatMessage } from '~/composables/useChat'
 
 useSeoMeta({
@@ -7,7 +7,7 @@ useSeoMeta({
   description: 'Trò chuyện với bạn bè trên Logea.',
 })
 
-const { init, token, currentUser } = useAuth()
+const { init, token, currentUser, logout } = useAuth()
 const {
   conversations,
   activeConvId,
@@ -46,6 +46,7 @@ const showNewConv = ref(false)
 const editingMsgId = ref<string | null>(null)
 const editContent = ref('')
 const openMenuMsgId = ref<string | null>(null)
+const showSettingsMenu = ref(false)
 const messageListRef = ref<HTMLElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const uploadingImage = ref(false)
@@ -98,8 +99,12 @@ function toggleMsgMenu(id: string) {
   openMenuMsgId.value = openMenuMsgId.value === id ? null : id
 }
 function handleDocumentClick(e: MouseEvent) {
-  if (openMenuMsgId.value && !(e.target as HTMLElement).closest('[data-msg-menu]')) {
+  const target = e.target as HTMLElement
+  if (openMenuMsgId.value && !target.closest('[data-msg-menu]')) {
     closeMsgMenu()
+  }
+  if (showSettingsMenu.value && !target.closest('[data-settings-menu]')) {
+    showSettingsMenu.value = false
   }
 }
 
@@ -131,6 +136,13 @@ onUnmounted(() => {
   disconnect()
   document.removeEventListener('click', handleDocumentClick)
 })
+
+function handleLogout() {
+  showSettingsMenu.value = false
+  disconnect()
+  logout()
+  navigateTo('/login')
+}
 
 // Auto-scroll when messages arrive, but only if user is already anchored to the bottom
 // (otherwise it snaps back down while they're scrolling up through history).
@@ -388,6 +400,27 @@ function partnerStatusText() {
                 >
                   <MessageSquarePlus class="h-5 w-5" />
                 </button>
+                <!-- Settings -->
+                <div data-settings-menu class="relative ml-1">
+                  <button
+                    class="rounded-full p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    title="Cài đặt"
+                    @click="showSettingsMenu = !showSettingsMenu"
+                  >
+                    <Settings class="h-5 w-5" />
+                  </button>
+                  <div
+                    v-if="showSettingsMenu"
+                    class="absolute right-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
+                  >
+                    <button
+                      class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
+                      @click="handleLogout"
+                    >
+                      <LogOut class="h-4 w-4" /> Đăng xuất
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
