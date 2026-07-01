@@ -22,6 +22,7 @@ const {
   searchUsers,
   createDirectConversation,
   deleteConversation,
+  purgeConversation,
   deleteMessage,
   updateMessage,
   sendMessage,
@@ -47,6 +48,8 @@ const editingMsgId = ref<string | null>(null)
 const editContent = ref('')
 const openMenuMsgId = ref<string | null>(null)
 const showSettingsMenu = ref(false)
+const openConvMenuId = ref<string | null>(null)
+const pendingPurgeConvId = ref<string | null>(null)
 const messageListRef = ref<HTMLElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const uploadingImage = ref(false)
@@ -98,6 +101,18 @@ function closeMsgMenu() { openMenuMsgId.value = null }
 function toggleMsgMenu(id: string) {
   openMenuMsgId.value = openMenuMsgId.value === id ? null : id
 }
+function toggleConvMenu(id: string) {
+  openConvMenuId.value = openConvMenuId.value === id ? null : id
+}
+function confirmPurgeConversation(convId: string) {
+  openConvMenuId.value = null
+  pendingPurgeConvId.value = convId
+}
+async function executePurgeConversation() {
+  if (!pendingPurgeConvId.value) return
+  await purgeConversation(pendingPurgeConvId.value)
+  pendingPurgeConvId.value = null
+}
 function handleDocumentClick(e: MouseEvent) {
   const target = e.target as HTMLElement
   if (openMenuMsgId.value && !target.closest('[data-msg-menu]')) {
@@ -105,6 +120,9 @@ function handleDocumentClick(e: MouseEvent) {
   }
   if (showSettingsMenu.value && !target.closest('[data-settings-menu]')) {
     showSettingsMenu.value = false
+  }
+  if (openConvMenuId.value && !target.closest('[data-conv-menu]')) {
+    openConvMenuId.value = null
   }
 }
 
@@ -486,14 +504,17 @@ function partnerStatusText() {
             <p v-if="!conversations.length" class="mt-6 text-center text-sm text-muted-foreground">
               Chưa có cuộc trò chuyện nào.
             </p>
-            <button
+            <div
               v-for="c in filteredConversations"
               :key="c.id"
+              role="button"
+              tabindex="0"
               :class="[
-                'flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors',
+                'relative flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors',
                 activeConvId === c.id ? 'bg-accent' : 'hover:bg-secondary',
               ]"
               @click="selectConversation(c.id)"
+              @keydown.enter="selectConversation(c.id)"
             >
               <!-- Avatar + online dot -->
               <div class="relative shrink-0">
@@ -517,7 +538,30 @@ function partnerStatusText() {
                 </div>
                 <p class="truncate text-xs text-muted-foreground">{{ convPreview(c) }}</p>
               </div>
-            </button>
+
+              <!-- Conversation menu -->
+              <div data-conv-menu class="relative shrink-0">
+                <button
+                  class="rounded-full p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  title="Tuỳ chọn"
+                  @click.stop="toggleConvMenu(c.id)"
+                >
+                  <MoreHorizontal class="h-4 w-4" />
+                </button>
+                <div
+                  v-if="openConvMenuId === c.id"
+                  class="absolute right-0 top-full z-10 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
+                  @click.stop
+                >
+                  <button
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
+                    @click="confirmPurgeConversation(c.id)"
+                  >
+                    <Trash2 class="h-4 w-4" /> Xoá cuộc hội thoại
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </aside>
 
@@ -874,6 +918,38 @@ function partnerStatusText() {
             draggable="false"
             @click.stop
           />
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Purge conversation confirmation -->
+    <Teleport to="body">
+      <Transition name="lb">
+        <div
+          v-if="pendingPurgeConvId"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          @click.self="pendingPurgeConvId = null"
+        >
+          <div class="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl">
+            <h3 class="text-base font-semibold">Xoá vĩnh viễn cuộc trò chuyện?</h3>
+            <p class="mt-2 text-sm text-muted-foreground">
+              Toàn bộ tin nhắn sẽ bị xoá cho cả hai bên và không thể khôi phục.
+            </p>
+            <div class="mt-4 flex justify-end gap-2">
+              <button
+                class="rounded-full px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary"
+                @click="pendingPurgeConvId = null"
+              >
+                Huỷ
+              </button>
+              <button
+                class="rounded-full bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:opacity-90"
+                @click="executePurgeConversation"
+              >
+                Xoá vĩnh viễn
+              </button>
+            </div>
+          </div>
         </div>
       </Transition>
     </Teleport>

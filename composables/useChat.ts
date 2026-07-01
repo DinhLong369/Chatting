@@ -132,6 +132,22 @@ export const useChat = () => {
     if (_activeConvId.value === convId) _activeConvId.value = null
   }
 
+  // Permanently deletes the conversation, its messages and memberships for
+  // every participant (unlike deleteConversation, which only leaves it).
+  async function purgeConversation(convId: string) {
+    if (!token.value) return
+    try {
+      await fetch(`${config.public.apiBase}/api/conversations/${convId}/purge.json`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      })
+    } catch { /* ignore */ }
+    _conversations.value = _conversations.value.filter(c => c.id !== convId)
+    delete _messages.value[convId]
+    delete _latestMessage.value[convId]
+    if (_activeConvId.value === convId) _activeConvId.value = null
+  }
+
   async function deleteMessage(convId: string, msgId: string) {
     if (!token.value) return
     try {
@@ -269,6 +285,15 @@ export const useChat = () => {
         break
       }
 
+      case 'conversation_deleted': {
+        if (!convId) break
+        _conversations.value = _conversations.value.filter(c => c.id !== convId)
+        delete _messages.value[convId]
+        delete _latestMessage.value[convId]
+        if (_activeConvId.value === convId) _activeConvId.value = null
+        break
+      }
+
       case 'user_online': {
         const uid = ev.data?.user_id as string | undefined
         if (uid) _addOrUpdateOnline(uid)
@@ -393,6 +418,7 @@ export const useChat = () => {
     searchUsers,
     createDirectConversation,
     deleteConversation,
+    purgeConversation,
     deleteMessage,
     updateMessage,
     // WS methods
