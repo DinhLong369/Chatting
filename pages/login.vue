@@ -6,10 +6,11 @@ useSeoMeta({
   ogDescription: 'Đăng nhập vào Logea để tiếp tục trò chuyện và kết nối.',
 })
 
-const { init, login } = useAuth()
+const { init, login, token } = useAuth()
 
 onMounted(() => {
   init()
+  if (token.value) navigateTo('/messages')
 })
 
 const account = ref('')
