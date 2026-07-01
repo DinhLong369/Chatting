@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ImagePlus, MessageSquarePlus, Phone, Search, Send, Trash2, Video, X, Pencil, Check } from 'lucide-vue-next'
+import { ArrowLeft, ImagePlus, MessageSquarePlus, MoreHorizontal, Phone, Search, Send, Trash2, Video, X, Pencil, Check } from 'lucide-vue-next'
 import type { Conversation, ChatUser, ChatMessage } from '~/composables/useChat'
 
 useSeoMeta({
@@ -45,15 +45,24 @@ const newConvSearching = ref(false)
 const showNewConv = ref(false)
 const editingMsgId = ref<string | null>(null)
 const editContent = ref('')
+const openMenuMsgId = ref<string | null>(null)
 const messageListRef = ref<HTMLElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const uploadingImage = ref(false)
 const lightboxUrl = ref<string | null>(null)
 const loadedMediaIds = ref<Set<string>>(new Set())
+// Tracks whether the user is currently anchored to the bottom of the thread.
+// Updated from real scroll events so it's never stale by the time new content arrives.
+const stickToBottom = ref(true)
+// While true, the activeMessages watcher defers to the conversation-switch logic below
+// instead of racing it — avoids the two watchers fighting over when to scroll.
+const isSwitchingConversation = ref(false)
 
 function isMediaLoaded(id: string) { return loadedMediaIds.value.has(id) }
-function markMediaLoaded(id: string) {
+async function markMediaLoaded(id: string) {
   loadedMediaIds.value = new Set([...loadedMediaIds.value, id])
+  await nextTick()
+  if (stickToBottom.value) scrollToBottom()
 }
 
 // ── Computed ────────────────────────────────────────────────────────────────
@@ -84,36 +93,83 @@ const isPartnerTyping = computed(() => {
   return (typingUsers.value[activeConvId.value] ?? []).includes(activePartner.value.id)
 })
 
+function closeMsgMenu() { openMenuMsgId.value = null }
+function toggleMsgMenu(id: string) {
+  openMenuMsgId.value = openMenuMsgId.value === id ? null : id
+}
+function handleDocumentClick(e: MouseEvent) {
+  if (openMenuMsgId.value && !(e.target as HTMLElement).closest('[data-msg-menu]')) {
+    closeMsgMenu()
+  }
+}
+
 // ── Lifecycle ───────────────────────────────────────────────────────────────
 onMounted(async () => {
+  document.addEventListener('click', handleDocumentClick)
   init()
   if (!token.value) { navigateTo('/login'); return }
   connect()
   await loadConversations()
+
+  // activeConvId can already be set from a previous visit (composable state
+  // persists across navigation), in which case the activeConvId watcher below
+  // won't fire again — so jump to the bottom explicitly for this fresh mount.
+  const convId = activeConvId.value
+  if (convId) {
+    mobileView.value = 'thread'
+    isSwitchingConversation.value = true
+    stickToBottom.value = true
+    if (!messages.value[convId]) await loadMessages(convId)
+    markSeen(convId)
+    await nextTick()
+    scrollToBottom()
+    isSwitchingConversation.value = false
+  }
 })
 
-onUnmounted(() => disconnect())
+onUnmounted(() => {
+  disconnect()
+  document.removeEventListener('click', handleDocumentClick)
+})
 
-// Auto-scroll when messages arrive
+// Auto-scroll when messages arrive, but only if user is already anchored to the bottom
+// (otherwise it snaps back down while they're scrolling up through history).
+// Skipped while a conversation switch is in flight — that flow owns the scroll itself.
 watch(activeMessages, async () => {
+  if (isSwitchingConversation.value) return
+  const stick = stickToBottom.value
   await nextTick()
-  scrollToBottom()
+  if (stick) scrollToBottom()
 }, { deep: true })
 
-// Load messages when switching conversation
+// Load messages when switching conversation — always jump to the newest message
 watch(activeConvId, async newId => {
   if (!newId) return
+  isSwitchingConversation.value = true
+  stickToBottom.value = true
   if (!messages.value[newId]) await loadMessages(newId)
   markSeen(newId)
   await nextTick()
   scrollToBottom()
+  isSwitchingConversation.value = false
 })
 
 // ── Methods ─────────────────────────────────────────────────────────────────
+function isNearBottom(threshold = 120) {
+  const el = messageListRef.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+}
+
+function handleMessageListScroll() {
+  stickToBottom.value = isNearBottom()
+}
+
 function scrollToBottom() {
   if (messageListRef.value) {
     messageListRef.value.scrollTop = messageListRef.value.scrollHeight
   }
+  stickToBottom.value = true
 }
 
 function selectConversation(id: string) {
@@ -142,6 +198,7 @@ function handleDraftKeydown(e: KeyboardEvent) {
 
 // Edit
 function startEdit(msg: ChatMessage) {
+  closeMsgMenu()
   editingMsgId.value = msg.id
   editContent.value = msg.content
 }
@@ -154,6 +211,7 @@ async function confirmEdit() {
 
 // Delete
 async function confirmDelete(msgId: string) {
+  closeMsgMenu()
   if (!activeConvId.value) return
   await deleteMessage(activeConvId.value, msgId)
 }
@@ -171,9 +229,10 @@ function onNewConvInput() {
 
 async function startConversation(user: ChatUser) {
   const conv = await createDirectConversation(user.id)
-  if (conv) selectConversation(conv.id)
+  showNewConv.value = false
   newConvSearch.value = ''
   newConvResults.value = []
+  if (conv) selectConversation(conv.id)
 }
 
 // Image / video upload
@@ -208,24 +267,30 @@ function onPaste(e: ClipboardEvent) {
 }
 
 // ── Media resolution ────────────────────────────────────────────────────────
-type MediaKind = 'image' | 'video' | 'gif' | 'sticker' | 'text'
+type MediaKind = 'image' | 'video' | 'gif' | 'sticker' | 'text' | 'deleted'
 interface ResolvedMedia { kind: MediaKind; url: string | null }
 interface ResolvedMessage extends ChatMessage { _media: ResolvedMedia }
 
 const { public: { apiBase } } = useRuntimeConfig()
 
 function resolveMedia(msg: ChatMessage): ResolvedMedia {
+  if (msg.deleted_at) return { kind: 'deleted', url: null }
+
+  // Content can be missing/undefined for messages the server has blanked out
+  // (e.g. a legacy omitempty response) — never let that crash the whole list.
+  const content = msg.content ?? ''
+
   // New format: explicit message_type
-  if (msg.message_type === 'image') return { kind: 'image', url: msg.content }
-  if (msg.message_type === 'video') return { kind: 'video', url: msg.content }
-  if (msg.message_type === 'gif') return { kind: 'gif', url: msg.content }
-  if (msg.message_type === 'sticker') return { kind: 'sticker', url: msg.content }
+  if (msg.message_type === 'image') return { kind: 'image', url: content }
+  if (msg.message_type === 'video') return { kind: 'video', url: content }
+  if (msg.message_type === 'gif') return { kind: 'gif', url: content }
+  if (msg.message_type === 'sticker') return { kind: 'sticker', url: content }
 
   // Legacy format: __lh_media__:{"kind":"gif"|"image"|"video"|"sticker","url":"..."}
   // Prefix '__lh_media__:' = 13 characters
-  if (msg.content.startsWith('__lh_media__:')) {
+  if (content.startsWith('__lh_media__:')) {
     try {
-      const parsed = JSON.parse(msg.content.slice(13)) as { kind?: string; url?: string }
+      const parsed = JSON.parse(content.slice(13)) as { kind?: string; url?: string }
       if (parsed.url) {
         // Relative URL (sticker từ server) → prepend apiBase
         const url = parsed.url.startsWith('/') ? `${apiBase}${parsed.url}` : parsed.url
@@ -240,7 +305,7 @@ function resolveMedia(msg: ChatMessage): ResolvedMedia {
   }
 
   // Fallback: phát hiện qua URL khi server không trả về message_type đúng
-  const raw = msg.content.trim()
+  const raw = content.trim()
   if (/^https?:\/\/\S+$/i.test(raw)) {
     const clean = raw.split('?')[0]!.toLowerCase()
     if (/\.(jpe?g|jpg|png|webp|avif|gif|bmp|svg)$/i.test(clean))
@@ -270,11 +335,12 @@ function convPreview(conv: Conversation) {
   const isMe = last.sender_id === currentUser.value?.id
   const prefix = isMe ? 'Bạn: ' : ''
   const media = resolveMedia(last)
+  if (media.kind === 'deleted') return prefix + 'Tin nhắn đã bị xoá'
   if (media.kind === 'image') return prefix + '📷 Ảnh'
   if (media.kind === 'gif') return prefix + '🎞️ GIF'
   if (media.kind === 'sticker') return prefix + '🩵 Sticker'
   if (media.kind === 'video') return prefix + '🎥 Video'
-  const text = last.content
+  const text = last.content ?? ''
   return prefix + (text.length > 40 ? text.slice(0, 40) + '…' : text)
 }
 function convTime(conv: Conversation) {
@@ -499,6 +565,7 @@ function partnerStatusText() {
             v-else
             ref="messageListRef"
             class="min-h-0 flex-1 space-y-1.5 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-5 sm:py-5"
+            @scroll="handleMessageListScroll"
           >
             <div
               v-for="msg in resolvedMessages"
@@ -530,27 +597,39 @@ function partnerStatusText() {
                 <!-- ── Normal bubble ── -->
                 <div v-else class="flex items-end gap-1">
 
-                  <!-- Action buttons: own messages, hover on desktop / long-press intent on mobile -->
+                  <!-- Action menu: own, non-deleted messages. Always visible (subtle) since
+                       most usage here is touch/mobile, where hover never triggers. -->
                   <div
-                    v-if="isOwnMessage(msg)"
-                    class="mb-0.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                    v-if="isOwnMessage(msg) && msg._media.kind !== 'deleted'"
+                    data-msg-menu
+                    class="relative mb-0.5 flex shrink-0 items-center opacity-60 transition-opacity hover:opacity-100"
                   >
-                    <!-- Chỉ cho sửa tin nhắn text -->
                     <button
-                      v-if="msg._media.kind === 'text'"
                       class="rounded-full p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      title="Chỉnh sửa"
-                      @click="startEdit(msg)"
+                      title="Tuỳ chọn"
+                      @click="toggleMsgMenu(msg.id)"
                     >
-                      <Pencil class="h-3.5 w-3.5" />
+                      <MoreHorizontal class="h-3.5 w-3.5" />
                     </button>
-                    <button
-                      class="rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      title="Xoá"
-                      @click="confirmDelete(msg.id)"
+                    <div
+                      v-if="openMenuMsgId === msg.id"
+                      class="absolute bottom-full right-0 z-10 mb-1 w-32 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
                     >
-                      <Trash2 class="h-3.5 w-3.5" />
-                    </button>
+                      <!-- Chỉ cho sửa tin nhắn text -->
+                      <button
+                        v-if="msg._media.kind === 'text'"
+                        class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-secondary"
+                        @click="startEdit(msg)"
+                      >
+                        <Pencil class="h-3.5 w-3.5" /> Chỉnh sửa
+                      </button>
+                      <button
+                        class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
+                        @click="confirmDelete(msg.id)"
+                      >
+                        <Trash2 class="h-3.5 w-3.5" /> Xoá
+                      </button>
+                    </div>
                   </div>
 
                   <!-- ── IMAGE / GIF / STICKER ── -->
@@ -630,6 +709,17 @@ function partnerStatusText() {
                     >
                       {{ formatMsgTime(msg.created_at) }}
                     </div>
+                  </div>
+
+                  <!-- ── DELETED ── -->
+                  <div
+                    v-else-if="msg._media.kind === 'deleted'"
+                    :class="[
+                      'max-w-full rounded-2xl border border-dashed border-border px-3.5 py-2 text-sm italic text-muted-foreground sm:px-4 sm:py-2.5',
+                      isOwnMessage(msg) ? 'rounded-tr-md' : 'rounded-tl-md',
+                    ]"
+                  >
+                    Tin nhắn đã bị xoá
                   </div>
 
                   <!-- ── TEXT ── -->

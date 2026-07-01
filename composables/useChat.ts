@@ -19,6 +19,7 @@ export interface Conversation {
   type: string
   last_message_at?: string
   members: ConversationMember[]
+  last_message?: ChatMessage
 }
 
 export interface ChatMessage {
@@ -30,6 +31,7 @@ export interface ChatMessage {
   message_type: string
   created_at?: string
   updated_at?: string
+  deleted_at?: string | null
 }
 
 // ── Singleton state ──────────────────────────────────────────────────────────
@@ -61,7 +63,12 @@ export const useChat = () => {
     try {
       const res = await fetch(`${config.public.apiBase}/api/conversations.json`, { headers: authHeaders() })
       const data = await res.json() as { status: boolean; data?: Conversation[] }
-      if (data.status && data.data) _conversations.value = data.data
+      if (data.status && data.data) {
+        _conversations.value = data.data
+        for (const conv of data.data) {
+          if (conv.last_message) _latestMessage.value[conv.id] = conv.last_message
+        }
+      }
     } catch { /* ignore */ }
   }
 
@@ -101,9 +108,9 @@ export const useChat = () => {
         headers: authHeaders(),
         body: JSON.stringify({ user_id: userId }),
       })
-      const data = await res.json() as { status: boolean; data?: { data?: Conversation } }
-      if (data.status && data.data?.data) {
-        const conv = data.data.data
+      const data = await res.json() as { status: boolean; data?: Conversation }
+      if (data.status && data.data) {
+        const conv = data.data
         if (!_conversations.value.find(c => c.id === conv.id)) {
           _conversations.value = [conv, ..._conversations.value]
         }
@@ -128,10 +135,17 @@ export const useChat = () => {
   async function deleteMessage(convId: string, msgId: string) {
     if (!token.value) return
     try {
-      await fetch(`${config.public.apiBase}/api/conversations/${convId}/messages/${msgId}.json`, {
+      const res = await fetch(`${config.public.apiBase}/api/conversations/${convId}/messages/${msgId}.json`, {
         method: 'DELETE',
         headers: authHeaders(),
       })
+      const data = await res.json() as { status: boolean }
+      // Update immediately rather than waiting for the message_deleted WS event to round-trip.
+      if (data.status && _messages.value[convId]) {
+        _messages.value[convId] = _messages.value[convId].map(m =>
+          m.id === msgId ? { ...m, content: '', deleted_at: new Date().toISOString() } : m,
+        )
+      }
     } catch { /* ignore */ }
   }
 
@@ -248,7 +262,9 @@ export const useChat = () => {
         if (!convId || !ev.data) break
         const deletedId = ev.data.message_id as string
         if (_messages.value[convId]) {
-          _messages.value[convId] = _messages.value[convId].filter(m => m.id !== deletedId)
+          _messages.value[convId] = _messages.value[convId].map(m =>
+            m.id === deletedId ? { ...m, content: '', deleted_at: new Date().toISOString() } : m,
+          )
         }
         break
       }
