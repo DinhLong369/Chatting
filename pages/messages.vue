@@ -338,7 +338,7 @@ function resolveMedia(msg: ChatMessage): ResolvedMedia {
   const raw = content.trim()
   if (/^https?:\/\/\S+$/i.test(raw)) {
     const clean = raw.split('?')[0]!.toLowerCase()
-    if (/\.(jpe?g|jpg|png|webp|avif|gif|bmp|svg)$/i.test(clean))
+    if (/\.(jpe?g|jpg|png|webp|avif|gif|bmp|svg|jfif)$/i.test(clean))
       return { kind: clean.endsWith('.gif') ? 'gif' : 'image', url: raw }
     if (/\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(clean))
       return { kind: 'video', url: raw }
@@ -618,13 +618,13 @@ function partnerStatusText() {
               >
                 <Video class="h-4 w-4" />
               </button>
-              <button
+              <!-- <button
                 class="rounded-full p-2 text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
                 title="Xoá cuộc trò chuyện"
                 @click="deleteConversation(activeConversation.id)"
               >
                 <Trash2 class="h-4 w-4" />
-              </button>
+              </button> -->
             </div>
           </header>
 
