@@ -317,6 +317,17 @@ export const useChat = () => {
         break
       }
 
+      case 'seen': {
+        if (!convId || !ev.data) break
+        const uid = ev.data.user_id as string
+        const time = (ev.data.time as string) || new Date().toISOString()
+        const conv = _conversations.value.find(c => c.id === convId)
+        conv?.members?.forEach(m => {
+          if (m.user_id === uid) m.last_read_at = time
+        })
+        break
+      }
+
       case 'typing': {
         if (!convId || !ev.data) break
         const uid = ev.data.user_id as string
@@ -376,6 +387,17 @@ export const useChat = () => {
     return conv.members?.find(m => m.user_id !== currentUser.value!.id)?.user ?? null
   }
 
+  // Hội thoại "chưa xem": tin cuối là của đối phương và mới hơn last_read_at của mình
+  function isConvUnread(conv: Conversation): boolean {
+    const meId = currentUser.value?.id
+    if (!meId) return false
+    const last = _latestMessage.value[conv.id]
+    if (!last || last.sender_id === meId || !last.created_at) return false
+    const me = conv.members?.find(m => m.user_id === meId)
+    if (!me?.last_read_at) return true
+    return new Date(last.created_at).getTime() > new Date(me.last_read_at).getTime()
+  }
+
   function formatLastSeen(user: ChatUser): string {
     if (!user.last_seen_at) return 'ngoại tuyến'
     const diff = Date.now() - new Date(user.last_seen_at).getTime()
@@ -430,6 +452,7 @@ export const useChat = () => {
     markSeen,
     // helpers
     isOnline,
+    isConvUnread,
     getConversationPartner,
     formatLastSeen,
     formatConvTime,

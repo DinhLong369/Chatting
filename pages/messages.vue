@@ -31,6 +31,7 @@ const {
   sendTyping,
   markSeen,
   isOnline,
+  isConvUnread,
   getConversationPartner,
   formatLastSeen,
   formatConvTime,
@@ -161,6 +162,33 @@ const isPartnerTyping = computed(() => {
   return (typingUsers.value[activeConvId.value] ?? []).includes(activePartner.value.id)
 })
 
+// ── Seen indicator (kiểu Messenger) ─────────────────────────────────────────
+const partnerLastReadAt = computed(() => {
+  const meId = currentUser.value?.id
+  const member = activeConversation.value?.members?.find(m => m.user_id !== meId)
+  return member?.last_read_at ?? null
+})
+
+// Chỉ báo chỉ hiện khi tin CUỐI CÙNG của đoạn chat là của mình (giống Messenger:
+// nếu đối phương đã nhắn lại thì tin trả lời tự nói lên là đã đọc — không hiện gì).
+const lastThreadMsg = computed(() => {
+  const msgs = activeMessages.value
+  const last = msgs[msgs.length - 1]
+  return last && last.sender_id === currentUser.value?.id ? last : null
+})
+
+// Tin cuối là của mình và đối phương đã đọc → avatar "Đã xem"
+const seenIndicatorMsgId = computed(() => {
+  const last = lastThreadMsg.value
+  if (!last?.created_at || !partnerLastReadAt.value) return null
+  return new Date(last.created_at).getTime() <= new Date(partnerLastReadAt.value).getTime()
+    ? last.id
+    : null
+})
+
+// Tin cuối là của mình nhưng chưa được xem → "Đã gửi"
+const sentIndicatorMsgId = computed(() => lastThreadMsg.value?.id ?? null)
+
 function closeMsgMenu() { openMenuMsgId.value = null }
 function toggleMsgMenu(id: string) {
   openMenuMsgId.value = openMenuMsgId.value === id ? null : id
@@ -229,8 +257,21 @@ function handleLogout() {
 // Auto-scroll when messages arrive, but only if user is already anchored to the bottom
 // (otherwise it snaps back down while they're scrolling up through history).
 // Skipped while a conversation switch is in flight — that flow owns the scroll itself.
+const lastMarkedSeenMsgId = ref<string | null>(null)
 watch(activeMessages, async () => {
   if (isSwitchingConversation.value) return
+
+  // Tin mới của đối phương đến khi đang mở hội thoại → báo đã xem ngay
+  const last = activeMessages.value[activeMessages.value.length - 1]
+  if (
+    last && activeConvId.value
+    && last.sender_id !== currentUser.value?.id
+    && last.id !== lastMarkedSeenMsgId.value
+  ) {
+    lastMarkedSeenMsgId.value = last.id
+    markSeen(activeConvId.value)
+  }
+
   const stick = stickToBottom.value
   await nextTick()
   if (stick) scrollToBottom()
@@ -622,10 +663,13 @@ function partnerStatusText() {
               <!-- Name + preview + time -->
               <div class="min-w-0 flex-1">
                 <div class="flex items-center justify-between gap-2">
-                  <span class="truncate text-sm font-semibold">{{ partnerName(c) }}</span>
-                  <span class="shrink-0 text-[11px] text-muted-foreground">{{ convTime(c) }}</span>
+                  <span :class="['truncate text-sm', isConvUnread(c) ? 'font-bold' : 'font-semibold']">{{ partnerName(c) }}</span>
+                  <span :class="['shrink-0 text-[11px]', isConvUnread(c) ? 'font-semibold text-primary' : 'text-muted-foreground']">{{ convTime(c) }}</span>
                 </div>
-                <p class="truncate text-xs text-muted-foreground">{{ convPreview(c) }}</p>
+                <div class="flex items-center justify-between gap-2">
+                  <p :class="['truncate text-xs', isConvUnread(c) ? 'font-semibold text-foreground' : 'text-muted-foreground']">{{ convPreview(c) }}</p>
+                  <span v-if="isConvUnread(c)" class="h-2.5 w-2.5 shrink-0 rounded-full bg-primary" />
+                </div>
               </div>
 
               <!-- Conversation menu -->
@@ -925,6 +969,33 @@ function partnerStatusText() {
                     </div>
                   </div>
 
+                </div>
+
+                <!-- ── Seen / Sent indicator (kiểu Messenger) ── -->
+                <div
+                  v-if="isOwnMessage(msg) && msg.id === seenIndicatorMsgId"
+                  class="mt-1 flex justify-end pr-0.5"
+                  :title="'Đã xem'"
+                >
+                  <img
+                    v-if="activePartner?.avatar"
+                    :src="activePartner.avatar"
+                    :alt="activePartner.name || activePartner.username"
+                    class="h-3.5 w-3.5 rounded-full object-cover"
+                  />
+                  <span
+                    v-else
+                    class="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-primary-foreground"
+                    :style="{ background: 'var(--gradient-warm)' }"
+                  >
+                    {{ (activePartner?.name || activePartner?.username || '?').charAt(0).toUpperCase() }}
+                  </span>
+                </div>
+                <div
+                  v-else-if="isOwnMessage(msg) && msg.id === sentIndicatorMsgId && msg._media.kind !== 'deleted'"
+                  class="mt-1 flex justify-end pr-0.5"
+                >
+                  <span class="text-[10px] text-muted-foreground">Đã gửi</span>
                 </div>
               </div>
             </div>
