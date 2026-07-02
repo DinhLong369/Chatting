@@ -8,19 +8,25 @@ useSeoMeta({
   ogDescription: 'Tạo tài khoản Logea để bắt đầu kết nối và trò chuyện.',
 })
 
+const { sendRegisterOtp, verifyRegisterOtp, register } = useAuth()
+
 const step = ref<1 | 2 | 3>(1)
 const email = ref('')
 const otp = ref(['', '', '', '', '', ''])
 const username = ref('')
+const displayName = ref('')
 const password = ref('')
 const done = ref(false)
+const loading = ref(false)
+const serverError = ref('')
+const registerToken = ref('')
 
 const current = computed(() => {
   if (done.value) return { t: 'Tạo tài khoản thành công', s: 'Chào mừng bạn đến với Logea!' }
   const titles = {
     1: { t: 'Đăng ký với email', s: 'Chúng tôi sẽ gửi mã xác thực 6 số đến email của bạn.' },
     2: { t: 'Nhập mã xác thực', s: `Mã đã được gửi tới ${email.value || 'email của bạn'}.` },
-    3: { t: 'Hoàn tất hồ sơ', s: 'Chọn tên người dùng và mật khẩu để hoàn tất.' },
+    3: { t: 'Hoàn tất hồ sơ', s: 'Chọn tên người dùng, tên hiển thị và mật khẩu để hoàn tất.' },
   }
   return titles[step.value]
 })
@@ -40,9 +46,15 @@ const emailError = computed(() => {
   if (!emailValid.value) return 'Email không hợp lệ. Ví dụ: xxx@gmail.com'
   return null
 })
-function submitEmail() {
+async function submitEmail() {
   emailTouched.value = true
-  if (emailValid.value) step.value = 2
+  if (!emailValid.value) return
+  serverError.value = ''
+  loading.value = true
+  const res = await sendRegisterOtp(email.value.trim())
+  loading.value = false
+  if (res.ok) step.value = 2
+  else serverError.value = res.message || 'Gửi mã thất bại'
 }
 
 // ── Step 2: OTP ──
@@ -68,9 +80,27 @@ function onOtpPaste(e: ClipboardEvent) {
   otp.value = next
   otpRefs.value[Math.min(text.length, 5)]?.focus()
 }
-function submitOtp() {
+async function submitOtp() {
   otpTouched.value = true
-  if (otpComplete.value) step.value = 3
+  if (!otpComplete.value) return
+  serverError.value = ''
+  loading.value = true
+  const res = await verifyRegisterOtp(email.value.trim(), otp.value.join(''))
+  loading.value = false
+  if (res.ok && res.token) {
+    registerToken.value = res.token
+    step.value = 3
+  } else {
+    serverError.value = res.message || 'Mã xác thực không đúng'
+  }
+}
+
+async function resendOtp() {
+  serverError.value = ''
+  loading.value = true
+  const res = await sendRegisterOtp(email.value.trim())
+  loading.value = false
+  if (!res.ok) serverError.value = res.message || 'Gửi lại mã thất bại'
 }
 
 // ── Step 3: Profile ──
@@ -114,13 +144,33 @@ const strengthColor = computed(
     ],
 )
 
-function submitProfile() {
+const displayNameTouched = ref(false)
+const displayNameError = computed(() => {
+  if (!displayNameTouched.value) return null
+  if (!displayName.value.trim()) return 'Vui lòng nhập tên hiển thị.'
+  if (displayName.value.trim().length > 100) return 'Tên hiển thị tối đa 100 ký tự.'
+  return null
+})
+
+async function submitProfile() {
   usernameTouched.value = true
+  displayNameTouched.value = true
   passwordTouched.value = true
   agreedTouched.value = true
-  if (!usernameError.value && !passwordError.value && agreed.value && username.value && password.value.length >= 8) {
-    done.value = true
-  }
+  if (usernameError.value || displayNameError.value || passwordError.value || !agreed.value
+    || !username.value || !displayName.value.trim() || password.value.length < 8) return
+
+  serverError.value = ''
+  loading.value = true
+  const res = await register({
+    username: username.value.trim(),
+    name: displayName.value.trim(),
+    password: password.value,
+    token: registerToken.value,
+  })
+  loading.value = false
+  if (res.ok) done.value = true
+  else serverError.value = res.message || 'Đăng ký thất bại'
 }
 </script>
 
@@ -154,6 +204,15 @@ function submitProfile() {
       </li>
     </ol>
 
+    <!-- Server error -->
+    <div
+      v-if="serverError && !done"
+      class="mb-4 flex items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2.5 text-sm font-medium text-destructive"
+    >
+      <AlertCircle class="h-4 w-4 shrink-0" />
+      {{ serverError }}
+    </div>
+
     <!-- Step 1: Email -->
     <form v-if="!done && step === 1" novalidate class="space-y-4" @submit.prevent="submitEmail">
       <UiValidatedField
@@ -167,7 +226,7 @@ function submitProfile() {
         :hint="!emailError ? 'Bạn sẽ nhận được mã 6 số trong vài giây.' : undefined"
         @blur="emailTouched = true"
       />
-      <UiPrimaryButton>Gửi mã xác thực</UiPrimaryButton>
+      <UiPrimaryButton :disabled="loading">{{ loading ? 'Đang gửi…' : 'Gửi mã xác thực' }}</UiPrimaryButton>
     </form>
 
     <!-- Step 2: OTP -->
@@ -204,13 +263,13 @@ function submitProfile() {
       </div>
       <div class="flex items-center justify-between text-sm text-muted-foreground">
         <span>Không nhận được mã?</span>
-        <button type="button" class="font-medium text-primary hover:underline">Gửi lại</button>
+        <button type="button" class="font-medium text-primary hover:underline" :disabled="loading" @click="resendOtp">Gửi lại</button>
       </div>
-      <UiPrimaryButton>Xác thực</UiPrimaryButton>
+      <UiPrimaryButton :disabled="loading">{{ loading ? 'Đang xác thực…' : 'Xác thực' }}</UiPrimaryButton>
       <button
         type="button"
         class="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-        @click="step = 1"
+        @click="step = 1; serverError = ''"
       >
         <ArrowLeft class="h-4 w-4" />
         Đổi email khác ({{ email || '—' }})
@@ -227,6 +286,16 @@ function submitProfile() {
         :error="usernameError"
         :success="!usernameError && usernameValid"
         @blur="usernameTouched = true"
+      />
+      <UiValidatedField
+        v-model="displayName"
+        label="Tên hiển thị"
+        placeholder="Nguyễn Văn A"
+        autocomplete="name"
+        :error="displayNameError"
+        :success="!displayNameError && !!displayName.trim()"
+        :hint="!displayNameError ? 'Tên này sẽ hiển thị với mọi người trong đoạn chat.' : undefined"
+        @blur="displayNameTouched = true"
       />
       <div class="space-y-1.5">
         <UiValidatedField
@@ -270,11 +339,11 @@ function submitProfile() {
           {{ agreeError }}
         </p>
       </div>
-      <UiPrimaryButton>Hoàn tất đăng ký</UiPrimaryButton>
+      <UiPrimaryButton :disabled="loading">{{ loading ? 'Đang đăng ký…' : 'Hoàn tất đăng ký' }}</UiPrimaryButton>
       <button
         type="button"
         class="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-        @click="step = 2"
+        @click="step = 2; serverError = ''"
       >
         <ArrowLeft class="h-4 w-4" />
         Quay lại

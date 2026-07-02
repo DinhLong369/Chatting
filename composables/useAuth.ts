@@ -62,6 +62,63 @@ export const useAuth = () => {
     }
   }
 
+  async function sendRegisterOtp(email: string): Promise<{ ok: boolean; message: string }> {
+    const config = useRuntimeConfig()
+    try {
+      const res = await fetch(`${config.public.apiBase}/api/auth/register/otp.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const data = await res.json() as { status: boolean; message: string }
+      return { ok: data.status, message: data.message }
+    } catch {
+      return { ok: false, message: 'Không thể kết nối đến server' }
+    }
+  }
+
+  async function verifyRegisterOtp(email: string, otp: string): Promise<{ ok: boolean; message: string; token?: string }> {
+    const config = useRuntimeConfig()
+    try {
+      const res = await fetch(`${config.public.apiBase}/api/auth/register/otp/verify.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      })
+      const data = await res.json() as { status: boolean; message: string; token?: string }
+      return { ok: data.status && !!data.token, message: data.message, token: data.token }
+    } catch {
+      return { ok: false, message: 'Không thể kết nối đến server' }
+    }
+  }
+
+  async function register(payload: { username: string; name: string; password: string; token: string }): Promise<{ ok: boolean; message: string }> {
+    const config = useRuntimeConfig()
+    try {
+      const res = await fetch(`${config.public.apiBase}/api/auth/register.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json() as { status: boolean; message: string; access_token?: string }
+      if (!data.status || !data.access_token) return { ok: false, message: data.message }
+      localStorage.setItem('glow_token', data.access_token)
+      const claims = decodeJWT(data.access_token)
+      if (claims) {
+        _token.value = data.access_token
+        _currentUser.value = {
+          id: claims.user_id as string,
+          email: claims.email as string,
+          username: claims.username as string,
+          role: claims.role as string,
+        }
+      }
+      return { ok: true, message: data.message }
+    } catch {
+      return { ok: false, message: 'Không thể kết nối đến server' }
+    }
+  }
+
   function logout() {
     if (import.meta.server) return
     localStorage.removeItem('glow_token')
@@ -74,6 +131,9 @@ export const useAuth = () => {
     currentUser: _currentUser,
     init,
     login,
+    sendRegisterOtp,
+    verifyRegisterOtp,
+    register,
     logout,
   }
 }

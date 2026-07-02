@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ArrowLeft, ImagePlus, LogOut, MessageSquarePlus, MoreHorizontal, Phone, Search, Send, Settings, Trash2, Video, X, Pencil, Check } from 'lucide-vue-next'
+import { ArrowLeft, Camera, ImagePlus, LogOut, MessageSquarePlus, MoreHorizontal, Phone, Search, Send, Settings, Trash2, UserCircle, Video, X, Pencil, Check } from 'lucide-vue-next'
 import type { Conversation, ChatUser, ChatMessage } from '~/composables/useChat'
+import type { UserProfile } from '~/composables/useProfile'
 
 useSeoMeta({
   title: 'Tin nhắn — Logea',
@@ -48,6 +49,69 @@ const editingMsgId = ref<string | null>(null)
 const editContent = ref('')
 const openMenuMsgId = ref<string | null>(null)
 const showSettingsMenu = ref(false)
+
+// ── Profile modal ───────────────────────────────────────────────────────────
+const { profile, loadProfile, loadUserProfile, updateProfile } = useProfile()
+
+// Xem trang cá nhân của người khác (click avatar trong hội thoại)
+const viewingProfile = ref<UserProfile | null>(null)
+const viewingProfileLoading = ref(false)
+const showUserProfileModal = ref(false)
+
+async function openUserProfile(userId: string) {
+  showUserProfileModal.value = true
+  viewingProfile.value = null
+  viewingProfileLoading.value = true
+  viewingProfile.value = await loadUserProfile(userId)
+  viewingProfileLoading.value = false
+}
+const showProfileModal = ref(false)
+const profileForm = reactive({ name: '', phone: '', title: '', avatar: '' })
+const profileSaving = ref(false)
+const profileUploadingAvatar = ref(false)
+const profileMessage = ref<{ ok: boolean; text: string } | null>(null)
+const avatarInputRef = ref<HTMLInputElement | null>(null)
+
+async function openProfileModal() {
+  showSettingsMenu.value = false
+  showProfileModal.value = true
+  profileMessage.value = null
+  const p = await loadProfile()
+  if (p) {
+    profileForm.name = p.name ?? ''
+    profileForm.phone = p.phone ?? ''
+    profileForm.title = p.title ?? ''
+    profileForm.avatar = p.avatar ?? ''
+  }
+}
+
+function handleAvatarSelected(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  if (avatarInputRef.value) avatarInputRef.value.value = ''
+  uploadAvatar(file)
+}
+
+async function uploadAvatar(file: File) {
+  profileUploadingAvatar.value = true
+  const url = await uploadMedia(file)
+  profileUploadingAvatar.value = false
+  if (url) profileForm.avatar = url
+  else profileMessage.value = { ok: false, text: 'Tải ảnh đại diện thất bại' }
+}
+
+async function saveProfile() {
+  profileSaving.value = true
+  profileMessage.value = null
+  const res = await updateProfile({
+    name: profileForm.name.trim(),
+    phone: profileForm.phone.trim(),
+    title: profileForm.title.trim(),
+    avatar: profileForm.avatar.trim(),
+  })
+  profileSaving.value = false
+  profileMessage.value = { ok: res.ok, text: res.ok ? 'Đã lưu thông tin' : res.message }
+}
 const openConvMenuId = ref<string | null>(null)
 const pendingPurgeConvId = ref<string | null>(null)
 const messageListRef = ref<HTMLElement | null>(null)
@@ -359,6 +423,9 @@ function partnerName(conv: Conversation) {
 function partnerInitial(conv: Conversation) {
   return partnerName(conv).charAt(0).toUpperCase()
 }
+function partnerAvatar(conv: Conversation) {
+  return getConversationPartner(conv)?.avatar || null
+}
 function convPreview(conv: Conversation) {
   const last = latestMessage.value[conv.id]
   if (!last) return ''
@@ -429,8 +496,14 @@ function partnerStatusText() {
                   </button>
                   <div
                     v-if="showSettingsMenu"
-                    class="absolute right-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
+                    class="absolute right-0 top-full z-10 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
                   >
+                    <button
+                      class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-secondary"
+                      @click="openProfileModal"
+                    >
+                      <UserCircle class="h-4 w-4" /> Trang cá nhân
+                    </button>
                     <button
                       class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
                       @click="handleLogout"
@@ -467,11 +540,20 @@ function partnerStatusText() {
                   class="flex w-full items-center gap-3 rounded-xl p-2 hover:bg-secondary"
                   @click="startConversation(u)"
                 >
-                  <div
-                    class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-primary-foreground"
-                    :style="{ background: 'var(--gradient-warm)' }"
-                  >
-                    {{ (u.name || u.username || '?').charAt(0).toUpperCase() }}
+                  <div class="relative h-9 w-9 shrink-0">
+                    <img
+                      v-if="u.avatar"
+                      :src="u.avatar"
+                      :alt="u.name || u.username"
+                      class="h-full w-full rounded-full object-cover"
+                    />
+                    <div
+                      v-else
+                      class="flex h-full w-full items-center justify-center rounded-full text-xs font-semibold text-primary-foreground"
+                      :style="{ background: 'var(--gradient-warm)' }"
+                    >
+                      {{ (u.name || u.username || '?').charAt(0).toUpperCase() }}
+                    </div>
                     <span
                       v-if="isOnline(u.id)"
                       class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-green-500"
@@ -518,7 +600,14 @@ function partnerStatusText() {
             >
               <!-- Avatar + online dot -->
               <div class="relative shrink-0">
+                <img
+                  v-if="partnerAvatar(c)"
+                  :src="partnerAvatar(c)!"
+                  :alt="partnerName(c)"
+                  class="h-11 w-11 rounded-full object-cover"
+                />
                 <div
+                  v-else
                   class="flex h-11 w-11 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
                   :style="{ background: 'var(--gradient-warm)' }"
                 >
@@ -587,16 +676,30 @@ function partnerStatusText() {
               >
                 <ArrowLeft class="h-5 w-5" />
               </button>
-              <div
-                class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-primary-foreground sm:h-10 sm:w-10"
-                :style="{ background: 'var(--gradient-warm)' }"
+              <button
+                type="button"
+                class="relative h-9 w-9 shrink-0 rounded-full transition-opacity hover:opacity-80 sm:h-10 sm:w-10"
+                title="Xem trang cá nhân"
+                @click="activePartner && openUserProfile(activePartner.id)"
               >
-                {{ partnerInitial(activeConversation) }}
+                <img
+                  v-if="partnerAvatar(activeConversation)"
+                  :src="partnerAvatar(activeConversation)!"
+                  :alt="partnerName(activeConversation)"
+                  class="h-full w-full rounded-full object-cover"
+                />
+                <div
+                  v-else
+                  class="flex h-full w-full items-center justify-center rounded-full text-sm font-semibold text-primary-foreground"
+                  :style="{ background: 'var(--gradient-warm)' }"
+                >
+                  {{ partnerInitial(activeConversation) }}
+                </div>
                 <span
                   v-if="isPartnerOnline"
                   class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-green-500"
                 />
-              </div>
+              </button>
               <div class="min-w-0 flex-1 overflow-hidden">
                 <div class="truncate text-sm font-semibold">{{ partnerName(activeConversation) }}</div>
                 <div :class="['truncate text-xs', isPartnerOnline ? 'text-green-500' : 'text-muted-foreground']">
@@ -898,7 +1001,7 @@ function partnerStatusText() {
       <Transition name="lb">
         <div
           v-if="lightboxUrl"
-          class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90"
+          class="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/90"
           @click.self="lightboxUrl = null"
         >
           <!-- Close button — safe-area aware -->
@@ -948,6 +1051,210 @@ function partnerStatusText() {
               >
                 Xoá vĩnh viễn
               </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Profile modal -->
+    <Teleport to="body">
+      <Transition name="lb">
+        <div
+          v-if="showProfileModal"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          @click.self="showProfileModal = false"
+        >
+          <div class="w-full max-w-md rounded-2xl bg-card p-5 shadow-2xl">
+            <div class="flex items-center justify-between">
+              <h3 class="text-base font-semibold">Trang cá nhân</h3>
+              <button
+                class="rounded-full p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                @click="showProfileModal = false"
+              >
+                <X class="h-4 w-4" />
+              </button>
+            </div>
+
+            <!-- Avatar -->
+            <div class="mt-4 flex justify-center">
+              <button
+                class="group relative h-24 w-24 overflow-hidden rounded-full"
+                :disabled="profileUploadingAvatar"
+                title="Đổi ảnh đại diện"
+                @click="avatarInputRef?.click()"
+              >
+                <img
+                  v-if="profileForm.avatar"
+                  :src="profileForm.avatar"
+                  alt="avatar"
+                  class="h-full w-full object-cover"
+                />
+                <div
+                  v-else
+                  class="flex h-full w-full items-center justify-center text-3xl font-semibold text-primary-foreground"
+                  :style="{ background: 'var(--gradient-warm)' }"
+                >
+                  {{ (profileForm.name || profile?.username || '?').charAt(0).toUpperCase() }}
+                </div>
+                <div
+                  class="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
+                  :class="{ 'opacity-100': profileUploadingAvatar }"
+                >
+                  <span v-if="profileUploadingAvatar" class="text-xs text-white">Đang tải…</span>
+                  <Camera v-else class="h-6 w-6 text-white" />
+                </div>
+              </button>
+              <input
+                ref="avatarInputRef"
+                type="file"
+                accept="image/*"
+                class="hidden"
+                @change="handleAvatarSelected"
+              />
+            </div>
+
+            <!-- Read-only info -->
+            <div class="mt-4 space-y-1 text-center">
+              <p class="text-sm font-medium">@{{ profile?.username || '…' }}</p>
+              <p class="text-xs text-muted-foreground">{{ profile?.email || '' }}</p>
+            </div>
+
+            <!-- Editable fields -->
+            <form class="mt-4 space-y-3" @submit.prevent="saveProfile">
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted-foreground">Tên hiển thị</label>
+                <input
+                  v-model="profileForm.name"
+                  maxlength="100"
+                  placeholder="Tên của bạn"
+                  class="h-10 w-full rounded-xl bg-secondary px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted-foreground">Số điện thoại</label>
+                <input
+                  v-model="profileForm.phone"
+                  maxlength="15"
+                  placeholder="+84…"
+                  class="h-10 w-full rounded-xl bg-secondary px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted-foreground">Tiểu sử</label>
+                <input
+                  v-model="profileForm.title"
+                  maxlength="150"
+                  placeholder="Giới thiệu ngắn về bạn"
+                  class="h-10 w-full rounded-xl bg-secondary px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+
+              <p
+                v-if="profileMessage"
+                :class="['text-sm', profileMessage.ok ? 'text-green-600' : 'text-destructive']"
+              >
+                {{ profileMessage.text }}
+              </p>
+
+              <div class="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  class="rounded-full px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-secondary"
+                  @click="showProfileModal = false"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="submit"
+                  :disabled="profileSaving || profileUploadingAvatar"
+                  class="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  {{ profileSaving ? 'Đang lưu…' : 'Lưu thay đổi' }}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- View user profile modal -->
+    <Teleport to="body">
+      <Transition name="lb">
+        <div
+          v-if="showUserProfileModal"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          @click.self="showUserProfileModal = false"
+        >
+          <div class="w-full max-w-sm rounded-2xl bg-card p-5 shadow-2xl">
+            <div class="flex items-center justify-between">
+              <h3 class="text-base font-semibold">Trang cá nhân</h3>
+              <button
+                class="rounded-full p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                @click="showUserProfileModal = false"
+              >
+                <X class="h-4 w-4" />
+              </button>
+            </div>
+
+            <!-- Loading -->
+            <p v-if="viewingProfileLoading" class="py-10 text-center text-sm text-muted-foreground">
+              Đang tải…
+            </p>
+
+            <!-- Not found -->
+            <p v-else-if="!viewingProfile" class="py-10 text-center text-sm text-muted-foreground">
+              Không tải được thông tin người dùng.
+            </p>
+
+            <!-- Profile -->
+            <div v-else class="mt-4">
+              <div class="flex justify-center">
+                <div class="relative h-24 w-24">
+                  <img
+                    v-if="viewingProfile.avatar"
+                    :src="viewingProfile.avatar"
+                    :alt="viewingProfile.name || viewingProfile.username"
+                    class="h-full w-full cursor-pointer rounded-full object-cover"
+                    @click="lightboxUrl = viewingProfile.avatar"
+                  />
+                  <div
+                    v-else
+                    class="flex h-full w-full items-center justify-center rounded-full text-3xl font-semibold text-primary-foreground"
+                    :style="{ background: 'var(--gradient-warm)' }"
+                  >
+                    {{ (viewingProfile.name || viewingProfile.username || '?').charAt(0).toUpperCase() }}
+                  </div>
+                  <span
+                    v-if="isOnline(viewingProfile.id)"
+                    class="absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-card bg-green-500"
+                  />
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-1 text-center">
+                <p class="text-lg font-semibold">{{ viewingProfile.name || viewingProfile.username }}</p>
+                <p class="text-sm text-muted-foreground">@{{ viewingProfile.username }}</p>
+                <p :class="['text-xs', isOnline(viewingProfile.id) ? 'text-green-500' : 'text-muted-foreground']">
+                  {{ isOnline(viewingProfile.id) ? 'đang hoạt động' : formatLastSeen(viewingProfile) }}
+                </p>
+              </div>
+
+              <div class="mt-4 space-y-2">
+                <div class="rounded-xl bg-secondary px-4 py-3">
+                  <p class="text-xs font-medium text-muted-foreground">Tên hiển thị</p>
+                  <p class="mt-0.5 text-sm">{{ viewingProfile.name || '—' }}</p>
+                </div>
+                <div class="rounded-xl bg-secondary px-4 py-3">
+                  <p class="text-xs font-medium text-muted-foreground">Số điện thoại</p>
+                  <p class="mt-0.5 text-sm">{{ viewingProfile.phone || 'Chưa cập nhật' }}</p>
+                </div>
+                <div class="rounded-xl bg-secondary px-4 py-3">
+                  <p class="text-xs font-medium text-muted-foreground">Tiểu sử</p>
+                  <p class="mt-0.5 whitespace-pre-wrap text-sm">{{ viewingProfile.title || 'Chưa cập nhật' }}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
